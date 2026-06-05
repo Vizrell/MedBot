@@ -105,7 +105,7 @@ export default function Resumir() {
 
         if (text.trim().length < 20) {
           text = raw.replace(/[^\x20-\x7E\xC0-\xFF\n]/g, " ").replace(/\s{3,}/g, "\n").trim();
-          if (text.length > 3000) text = text.slice(0, 3000);
+          if (text.length > 15000) text = text.slice(0, 15000);
         }
 
         if (text.trim().length < 10) {
@@ -116,7 +116,7 @@ export default function Resumir() {
         setAttachment({
           type: "pdf",
           name: file.name,
-          content: text.trim().slice(0, 3000),
+          content: text.trim().slice(0, 15000),
         });
         setError(null);
         setTopic(`Resumen de: ${file.name}`);
@@ -172,7 +172,39 @@ export default function Resumir() {
 
       if (attachment) {
         if (attachment.type === "pdf") {
-          promptContent = `Aquí tienes el contenido extraído del archivo PDF "${attachment.name}":\n\n${attachment.content}\n\nPor favor, genera un resumen detallado y estructurado de este contenido en español. Utiliza títulos de markdown (##, ###), negritas, listas y tablas si es conveniente, enfocándose en los conceptos médicos clave para un estudiante de medicina.`;
+          promptContent = `
+Analiza el siguiente contenido médico extraído del PDF "${attachment.name}".
+
+Genera una respuesta en este formato:
+
+## Resumen General
+
+Explicación clara y organizada.
+
+## Conceptos Clave
+
+- Punto importante 1
+- Punto importante 2
+- Punto importante 3
+
+## Tabla Resumen
+
+| Concepto | Descripción |
+|-----------|------------|
+
+## Puntos de Examen
+
+- Dato frecuente en evaluaciones
+- Concepto que suele preguntarse
+
+## Mnemotecnia
+
+Si aplica, crea una mnemotecnia útil para recordar la información.
+
+Contenido:
+
+${attachment.content}
+`;
           messagesPayload = [{ role: "user", content: promptContent }];
         } else if (attachment.type === "image") {
           const base64Raw = attachment.content.split(",")[1];
@@ -190,7 +222,30 @@ export default function Resumir() {
                 },
                 {
                   type: "text",
-                  text: `Analiza esta imagen médica/captura de pantalla y genera un resumen estructurado en español utilizando títulos de markdown (##, ###), negritas, listas y tablas si es conveniente, enfocándose en los conceptos médicos clave.`,
+                  text: `Analiza detalladamente esta imagen.
+
+                        Responde utilizando:
+
+                        ## Descripción
+
+                        ¿Qué se observa?
+
+                        ## Hallazgos Importantes
+
+                        - Hallazgo 1
+                        - Hallazgo 2
+
+                        ## Interpretación
+
+                        Explica el significado médico.
+
+                        ## Conceptos Relacionados
+
+                        Relaciona la imagen con anatomía, fisiología o patología cuando sea posible.
+
+                        ## Puntos de Examen
+
+                        Conceptos que un estudiante debería recordar.`,
                 },
               ],
             },
@@ -313,8 +368,8 @@ El archivo PDF contiene información académica sobre medicina. En este modo sim
           onClick={() => fileInputRef.current?.click()}
           title="Subir archivo o imagen para resumir"
           className={`w-12 h-12 rounded-2xl border transition-all flex-shrink-0 flex items-center justify-center ${attachment
-              ? "border-purple-400/50 bg-purple-600/15 text-purple-300"
-              : "border-border bg-white/5 text-secondary hover:bg-white/10"
+            ? "border-purple-400/50 bg-purple-600/15 text-purple-300"
+            : "border-border bg-white/5 text-secondary hover:bg-white/10"
             }`}
         >
           <FileUp size={20} />
@@ -331,8 +386,8 @@ El archivo PDF contiene información académica sobre medicina. En este modo sim
           onClick={generate}
           disabled={loading || (!topic.trim() && !attachment)}
           className={`px-6 py-3.5 rounded-xl border-none whitespace-nowrap flex items-center gap-2 text-sm font-semibold transition-all ${loading || (!topic.trim() && !attachment)
-              ? "cursor-not-allowed bg-white/10 text-secondary"
-              : "bg-gradient-to-br from-purple-600 to-fuchsia-500 text-white hover:shadow-lg hover:shadow-purple-500/25"
+            ? "cursor-not-allowed bg-white/10 text-secondary"
+            : "bg-gradient-to-br from-purple-600 to-fuchsia-500 text-white hover:shadow-lg hover:shadow-purple-500/25"
             }`}
         >
           <Sparkles size={18} />

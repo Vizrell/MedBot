@@ -132,7 +132,7 @@ export default function Tutor() {
     const textToSend = textOverride || input;
     const currentAttachment = attachmentRef.current;
 
-    if (!textToSend.trim() || loading) return;
+    if ((!textToSend.trim() && !currentAttachment) || loading) return;
 
     let apiMessageContent: any = textToSend.trim();
     if (currentAttachment) {
@@ -161,7 +161,7 @@ export default function Tutor() {
     };
 
     const newApiEntry = { role: "user" as const, content: apiMessageContent };
-    const updatedApiHistory = [...apiHistory.slice(-6), newApiEntry];
+    const updatedApiHistory = [...apiHistory.slice(-10), newApiEntry];
     const updatedMessages = [...messages, userMsg];
 
     setMessages(updatedMessages);
@@ -205,10 +205,7 @@ export default function Tutor() {
       let assistantResponse = "";
 
       if (!res.ok) {
-        assistantResponse = isImageSent
-          ? MOCK_IMAGE_REPLIES[Math.floor(Math.random() * MOCK_IMAGE_REPLIES.length)]
-          : MOCK_REPLIES[Math.floor(Math.random() * MOCK_REPLIES.length)];
-        setError("Sin créditos disponibles — usando modo de prueba. Intenta más tarde.");
+        throw new Error(data.error || "Error al consultar");
       } else {
         assistantResponse = data.reply;
       }
@@ -358,7 +355,7 @@ export default function Tutor() {
         }
         if (text.trim().length < 20) {
           text = raw.replace(/[^\x20-\x7E\xC0-\xFF\n]/g, " ").replace(/\s{3,}/g, "\n").trim();
-          if (text.length > 3000) text = text.slice(0, 3000);
+          if (text.length > 12000) text = text.slice(0, 12000);
         }
         setAttachment({ type: "pdf", name: file.name, content: text.trim().slice(0, 12000) });
         setInput(`Analiza y resume el contenido de este PDF: "${file.name}"`);
