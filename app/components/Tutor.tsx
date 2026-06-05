@@ -360,7 +360,7 @@ export default function Tutor() {
           text = raw.replace(/[^\x20-\x7E\xC0-\xFF\n]/g, " ").replace(/\s{3,}/g, "\n").trim();
           if (text.length > 3000) text = text.slice(0, 3000);
         }
-        setAttachment({ type: "pdf", name: file.name, content: text.trim().slice(0, 3000) });
+        setAttachment({ type: "pdf", name: file.name, content: text.trim().slice(0, 12000) });
         setInput(`Analiza y resume el contenido de este PDF: "${file.name}"`);
       } catch { setError("Error al leer el archivo PDF."); }
     } else if (file.type.startsWith("image/")) {
@@ -399,8 +399,8 @@ export default function Tutor() {
                   key={chat.id}
                   onClick={() => selectChat(chat.id)}
                   className={`group flex items-center justify-between w-full rounded-xl px-3 py-2.5 text-xs font-medium cursor-pointer transition-all ${currentChatId === chat.id
-                      ? "bg-gradient-to-r from-purple-600/30 to-fuchsia-600/15 border border-purple-500/20 text-purple-200"
-                      : "hover:bg-white/5 text-secondary"
+                    ? "bg-gradient-to-r from-purple-600/30 to-fuchsia-600/15 border border-purple-500/20 text-purple-200"
+                    : "hover:bg-white/5 text-secondary"
                     }`}
                 >
                   <div className="flex items-center gap-2 min-w-0 flex-1">
