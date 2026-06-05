@@ -312,11 +312,10 @@ El archivo PDF contiene información académica sobre medicina. En este modo sim
         <button
           onClick={() => fileInputRef.current?.click()}
           title="Subir archivo o imagen para resumir"
-          className={`w-12 h-12 rounded-2xl border transition-all flex-shrink-0 flex items-center justify-center ${
-            attachment 
-              ? "border-purple-400/50 bg-purple-600/15 text-purple-300" 
+          className={`w-12 h-12 rounded-2xl border transition-all flex-shrink-0 flex items-center justify-center ${attachment
+              ? "border-purple-400/50 bg-purple-600/15 text-purple-300"
               : "border-border bg-white/5 text-secondary hover:bg-white/10"
-          }`}
+            }`}
         >
           <FileUp size={20} />
         </button>
@@ -331,11 +330,10 @@ El archivo PDF contiene información académica sobre medicina. En este modo sim
         <button
           onClick={generate}
           disabled={loading || (!topic.trim() && !attachment)}
-          className={`px-6 py-3.5 rounded-xl border-none whitespace-nowrap flex items-center gap-2 text-sm font-semibold transition-all ${
-            loading || (!topic.trim() && !attachment)
+          className={`px-6 py-3.5 rounded-xl border-none whitespace-nowrap flex items-center gap-2 text-sm font-semibold transition-all ${loading || (!topic.trim() && !attachment)
               ? "cursor-not-allowed bg-white/10 text-secondary"
               : "bg-gradient-to-br from-purple-600 to-fuchsia-500 text-white hover:shadow-lg hover:shadow-purple-500/25"
-          }`}
+            }`}
         >
           <Sparkles size={18} />
           {loading ? "Generando..." : "Resumir"}
@@ -375,9 +373,8 @@ El archivo PDF contiene información académica sobre medicina. En este modo sim
             type="button"
             onClick={copyToClipboard}
             title="Copiar"
-            className={`absolute right-4 top-4 flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-border bg-white/10 text-secondary transition-all hover:bg-white/15 ${
-              copied ? "text-emerald-400" : ""
-            }`}
+            className={`absolute right-4 top-4 flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-border bg-white/10 text-secondary transition-all hover:bg-white/15 ${copied ? "text-emerald-400" : ""
+              }`}
           >
             {copied ? <Check size={16} /> : <Copy size={16} />}
           </button>

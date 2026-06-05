@@ -6,9 +6,9 @@ import Flashcards from "./components/Flashcards";
 import Resumir from "./components/Resumir";
 
 const TABS = [
-  { id: "tutor",      label: "Tutor",      icon: Stethoscope },
+  { id: "tutor", label: "Tutor", icon: Stethoscope },
   { id: "flashcards", label: "Flashcards", icon: BookOpen },
-  { id: "resumir",    label: "Resumir",    icon: Sparkles },
+  { id: "resumir", label: "Resumir", icon: Sparkles },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -17,52 +17,51 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<TabId>("tutor");
 
   return (
-    <div className="flex flex-col h-screen max-w-2xl mx-auto px-5">
-      {/* ── Header ── */}
-      <header className="flex items-center justify-between py-5 border-b border-border mb-4">
+    // ELIMINADO max-w-2xl: Ahora ocupa el 100% del ancho (w-full)
+    <div className="flex flex-col h-screen w-full bg-[#0d0714] overflow-hidden">
+
+      {/* ── Header adaptado a pantallas anchas y móviles ── */}
+      <header className="flex items-center justify-between py-4 px-4 md:px-6 border-b border-white/10 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-gradient-to-br from-purple-600 to-fuchsia-500 shadow-lg shadow-purple-500/30">
-            <Activity size={22} className="text-white" strokeWidth={2.2} />
+          <div className="flex h-10 w-10 md:h-11 md:w-11 items-center justify-center rounded-lg bg-gradient-to-br from-purple-600 to-fuchsia-500 shadow-lg shadow-purple-500/30">
+            <Activity size={20} className="text-white" strokeWidth={2.2} />
           </div>
           <div>
-            <h1 className="bg-gradient-to-r from-purple-300 to-fuchsia-400 bg-clip-text text-2xl font-bold text-transparent">
+            <h1 className="bg-gradient-to-r from-purple-300 to-fuchsia-400 bg-clip-text text-xl md:text-2xl font-bold text-transparent">
               ManolitoIAPRO
             </h1>
-            <p className="text-xs text-secondary">Te voy a carrear eso rico culo que te cargas preciosa</p>
+            <p className="text-[10px] md:text-xs text-secondary truncate max-w-[240px] sm:max-w-none">
+              Te voy a carrear eso rico culo que te cargas preciosa
+            </p>
           </div>
-        </div>
-
-        {/* Pulse indicator */}
-        <div className="flex items-center gap-2 rounded-full border border-purple-500/25 bg-purple-500/10 px-3.5 py-1.5">
-          <div className="h-2 w-2 animate-pulse rounded-full bg-purple-400" />
-          <span className="text-xs font-medium text-purple-300">Online</span>
         </div>
       </header>
 
-      {/* ── Tabs ── */}
-      <nav className="flex gap-1 pb-4 border-b border-border mb-5">
-        {TABS.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 flex items-center justify-center gap-2 px-2 py-3 rounded-lg text-sm transition-all duration-300 ${
-                isActive
-                  ? "border border-purple-500/25 bg-gradient-to-br from-purple-600/25 to-fuchsia-500/10 font-semibold text-purple-300"
-                  : "font-normal text-secondary hover:text-primary border border-transparent"
-              }`}
-            >
-              <Icon size={18} />
-              <span>{tab.label}</span>
-            </button>
-          );
-        })}
-      </nav>
+      {/* ── Tabs Responsivas y centradas con un max-w estético para que no se estiren al infinito ── */}
+      <div className="px-4 md:px-6 py-3 border-b border-white/5 shrink-0">
+        <nav className="flex gap-1.5 max-w-xl mx-auto w-full">
+          {TABS.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex-1 flex items-center justify-center gap-2 px-2 py-2.5 rounded-xl text-xs md:text-sm transition-all duration-300 select-none ${isActive
+                    ? "border border-purple-500/25 bg-gradient-to-br from-purple-600/25 to-fuchsia-500/10 font-semibold text-purple-300 shadow-sm"
+                    : "font-normal text-secondary hover:text-primary border border-transparent hover:bg-white/5"
+                  }`}
+              >
+                <Icon size={16} className="shrink-0" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      </div>
 
-      {/* ── Content ── */}
-      <main className="flex-1 overflow-hidden flex flex-col">
+      {/* ── Contenido Principal expandido al 100% ── */}
+      <main className="flex-1 overflow-hidden flex flex-col w-full">
         {activeTab === "tutor" && <Tutor />}
         {activeTab === "flashcards" && <Flashcards />}
         {activeTab === "resumir" && <Resumir />}

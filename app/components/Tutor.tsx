@@ -1,6 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, AlertTriangle, Mic, MicOff, FileUp, Image as ImageIcon } from "lucide-react";
+import { Send, Bot, User, AlertTriangle, Mic, MicOff, FileUp, Image as ImageIcon, MessageSquare, Plus, Trash2 } from "lucide-react";
 import MarkdownContent from "./MarkdownContent";
 
 interface Message {
@@ -9,9 +9,17 @@ interface Message {
   image?: string;
 }
 
+interface ChatSession {
+  id: string;
+  title: string;
+  messages: Message[];
+  apiHistory: any[];
+  createdAt: string;
+}
+
 const MOCK_REPLIES = [
   "¡Buena pregunta! La **mitocondria** es conocida como la *central energética* de la célula porque produce la mayor parte del ATP mediante fosforilación oxidativa.",
-  "El sistema nervioso se divide en dos partes principales:\n\n- **SNC** (Sistema Nervioso Central): cerebro y médula espinal\n- **SNP** (Sistema Nervioso Periférico): nervios craneales y espinales",
+  "El sistema nervioso se divide en dos partes principales:\n\n- **SNC** (Sistema Nervioso Central): cerebro y médula espinal\n- **SNP** (Sistema Periférico): nervios craneales y espinales",
   "La **hemoglobina** es una proteína tetramérica presente en los glóbulos rojos que transporta oxígeno desde los pulmones hacia los tejidos del cuerpo.",
   "Los cuatro tipos principales de tejido en el cuerpo humano son:\n\n1. **Epitelial** — recubrimiento y protección\n2. **Conectivo** — soporte y unión\n3. **Muscular** — movimiento\n4. **Nervioso** — comunicación y control",
   "La presión arterial normal en un adulto se considera alrededor de **120/80 mmHg**. Valores superiores a 140/90 mmHg se clasifican como *hipertensión*.",
@@ -23,9 +31,23 @@ const MOCK_IMAGE_REPLIES = [
   "Imagen médica cargada. En la versión de producción, analizaré densidades, tejidos y contrastes para darte un reporte detallado.",
 ];
 
+function cleanForSpeech(text: string): string {
+  return text
+    .replace(/#{1,6}\s/g, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/[-•]\s/g, "")
+    .replace(/\n+/g, ". ")
+    .trim();
+}
+
 export default function Tutor() {
+  // --- Estados de la App ---
+  const [chats, setChats] = useState<ChatSession[]>([]);
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [apiHistory, setApiHistory] = useState<any[]>([]);
+
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,11 +58,34 @@ export default function Tutor() {
     content: string;
     mediaType?: string;
   } | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const attachmentRef = useRef(attachment);
-  const stoppedRef = useRef(false); // ← ref para controlar el estado de la voz
+  const stoppedRef = useRef(false);
+
+  // --- Cargar chats desde LocalStorage al iniciar ---
+  useEffect(() => {
+    const savedChats = localStorage.getItem("medbot_local_chats");
+    if (savedChats) {
+      const parsedChats = JSON.parse(savedChats);
+      setChats(parsedChats);
+      if (parsedChats.length > 0) {
+        // Cargar el último chat activo por defecto
+        const lastChat = parsedChats[0];
+        setCurrentChatId(lastChat.id);
+        setMessages(lastChat.messages);
+        setApiHistory(lastChat.apiHistory);
+      }
+    }
+  }, []);
+
+  // --- Guardar chats en LocalStorage automáticamente ante cualquier cambio ---
+  const saveToLocalStorage = (updatedChats: ChatSession[]) => {
+    setChats(updatedChats);
+    localStorage.setItem("medbot_local_chats", JSON.stringify(updatedChats));
+  };
 
   useEffect(() => {
     attachmentRef.current = attachment;
@@ -50,7 +95,39 @@ export default function Tutor() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  // ── Send ──
+  // --- Crear nuevo Chat Vacío ---
+  function createNewChat() {
+    window.speechSynthesis.cancel();
+    setCurrentChatId(null);
+    setMessages([]);
+    setApiHistory([]);
+    setInput("");
+    setAttachment(null);
+  }
+
+  // --- Cambiar entre un chat y otro ---
+  function selectChat(chatId: string) {
+    window.speechSynthesis.cancel();
+    const selected = chats.find(c => c.id === chatId);
+    if (selected) {
+      setCurrentChatId(selected.id);
+      setMessages(selected.messages);
+      setApiHistory(selected.apiHistory);
+    }
+  }
+
+  // --- Borrar un chat ---
+  function deleteChat(chatId: string, e: React.MouseEvent) {
+    e.stopPropagation(); // Evita que se seleccione el chat al intentar borrarlo
+    const updatedChats = chats.filter(c => c.id !== chatId);
+    saveToLocalStorage(updatedChats);
+
+    if (currentChatId === chatId) {
+      createNewChat();
+    }
+  }
+
+  // --- Enviar Mensaje ---
   async function send(textOverride?: string) {
     const textToSend = textOverride || input;
     const currentAttachment = attachmentRef.current;
@@ -60,7 +137,7 @@ export default function Tutor() {
     let apiMessageContent: any = textToSend.trim();
     if (currentAttachment) {
       if (currentAttachment.type === "pdf") {
-        apiMessageContent = `[Contenido del PDF "${currentAttachment.name}"]:\n${currentAttachment.content}\n\n---\n\nPregunta del usuario: ${textToSend.trim()}`;
+        apiMessageContent = `[Contenido del PDF "${currentAttachment.name}"]: \n${currentAttachment.content}\n\n---\n\nPregunta del usuario: ${textToSend.trim()}`;
       } else if (currentAttachment.type === "image") {
         const base64Raw = currentAttachment.content.split(",")[1];
         apiMessageContent = [
@@ -84,9 +161,10 @@ export default function Tutor() {
     };
 
     const newApiEntry = { role: "user" as const, content: apiMessageContent };
-    const apiMessages = [...apiHistory.slice(-6), newApiEntry];
+    const updatedApiHistory = [...apiHistory.slice(-6), newApiEntry];
+    const updatedMessages = [...messages, userMsg];
 
-    setMessages((prev) => [...prev, userMsg]);
+    setMessages(updatedMessages);
     setInput("");
     setLoading(true);
     setError(null);
@@ -94,129 +172,164 @@ export default function Tutor() {
     const isImageSent = currentAttachment?.type === "image";
     setAttachment(null);
 
+    // Determinar o crear la sesión del chat actual
+    let chatId = currentChatId;
+    let currentChatsCopy = [...chats];
+
+    if (!chatId) {
+      chatId = "chat_" + Date.now();
+      setCurrentChatId(chatId);
+      const newChat: ChatSession = {
+        id: chatId,
+        title: textToSend.trim().length > 25 ? textToSend.trim().substring(0, 25) + "..." : textToSend.trim(),
+        messages: updatedMessages,
+        apiHistory: updatedApiHistory,
+        createdAt: new Date().toLocaleDateString(),
+      };
+      currentChatsCopy = [newChat, ...currentChatsCopy];
+    } else {
+      currentChatsCopy = currentChatsCopy.map(c =>
+        c.id === chatId ? { ...c, messages: updatedMessages, apiHistory: updatedApiHistory } : c
+      );
+    }
+    saveToLocalStorage(currentChatsCopy);
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: apiMessages }),
+        body: JSON.stringify({ messages: updatedApiHistory }),
       });
       const data = await res.json();
 
+      let assistantResponse = "";
+
       if (!res.ok) {
-        const mock = isImageSent
+        assistantResponse = isImageSent
           ? MOCK_IMAGE_REPLIES[Math.floor(Math.random() * MOCK_IMAGE_REPLIES.length)]
           : MOCK_REPLIES[Math.floor(Math.random() * MOCK_REPLIES.length)];
-        setMessages((prev) => [...prev, { role: "assistant", content: mock }]);
         setError("Sin créditos disponibles — usando modo de prueba. Intenta más tarde.");
       } else {
-        setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
-        setApiHistory((prev) => [
-          ...prev,
-          newApiEntry,
-          { role: "assistant" as const, content: data.reply },
-        ]);
+        assistantResponse = data.reply;
       }
+
+      const finalMessages = [...updatedMessages, { role: "assistant" as const, content: assistantResponse }];
+      const finalApiHistory = [...updatedApiHistory, { role: "assistant" as const, content: assistantResponse }];
+
+      setMessages(finalMessages);
+      setApiHistory(finalApiHistory);
+
+      // Actualizar chat con la respuesta de la IA
+      const finalChats = currentChatsCopy.map(c =>
+        c.id === chatId ? { ...c, messages: finalMessages, apiHistory: finalApiHistory } : c
+      );
+      saveToLocalStorage(finalChats);
+
+      if (isListening || textOverride) speak(assistantResponse);
+
     } catch {
       const mock = isImageSent
         ? MOCK_IMAGE_REPLIES[Math.floor(Math.random() * MOCK_IMAGE_REPLIES.length)]
         : MOCK_REPLIES[Math.floor(Math.random() * MOCK_REPLIES.length)];
-      setMessages((prev) => [...prev, { role: "assistant", content: mock }]);
+
+      const finalMessages = [...updatedMessages, { role: "assistant" as const, content: mock }];
+      setMessages(finalMessages);
       setError("Sin conexión al servidor — usando modo de prueba.");
+
+      const finalChats = currentChatsCopy.map(c =>
+        c.id === chatId ? { ...c, messages: finalMessages } : c
+      );
+      saveToLocalStorage(finalChats);
+
+      if (isListening || textOverride) speak(mock);
     } finally {
       setLoading(false);
     }
   }
 
-  // ── Voice ──
-function toggleVoice() {
-  // DETENER
-  if (isListening) {
-    stoppedRef.current = true;
-    recognitionRef.current?.abort();
-    recognitionRef.current = null;
-    setIsListening(false);
-    return;
+  // --- Voice Speak ---
+  function speak(text: string) {
+    const cleanedText = cleanForSpeech(text);
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(cleanedText);
+    utterance.lang = "es-MX";
+    utterance.rate = 0.95;
+
+    const voices = window.speechSynthesis.getVoices();
+    const spanishVoice = voices.find(v => v.lang.includes("es"));
+    if (spanishVoice) utterance.voice = spanishVoice;
+
+    window.speechSynthesis.speak(utterance);
   }
 
-  const SpeechRecognition =
-    (window as any).SpeechRecognition ||
-    (window as any).webkitSpeechRecognition;
-
-  if (!SpeechRecognition) {
-    setError("Tu navegador no soporta reconocimiento de voz. Usa Chrome o Edge.");
-    return;
-  }
-
-  // Reset limpio antes de empezar
-  stoppedRef.current = false;
-  let fullTranscript = "";
-  let isRestarting = false; // ← evita reinicios en paralelo
-
-  function startRecognition() {
-    if (stoppedRef.current || isRestarting) return;
-    isRestarting = true;
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = "es-MX";
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
-
-    recognition.onstart = () => {
-      isRestarting = false; // ← ya arrancó, permite futuros reinicios
-    };
-
-    recognition.onresult = (event: any) => {
-      let interim = "";
-      let final = "";
-      for (let i = 0; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          final += event.results[i][0].transcript + " ";
-        } else {
-          interim += event.results[i][0].transcript;
-        }
-      }
-      if (final) fullTranscript += final;
-      setInput((fullTranscript + interim).trim());
-    };
-
-    recognition.onend = () => {
-      isRestarting = false;
-      if (stoppedRef.current) {
-        // Usuario detuvo — enviar
-        setIsListening(false);
-        const text = fullTranscript.trim();
-        if (text) setTimeout(() => send(text), 100);
-      } else {
-        // Se cortó solo — reiniciar después de un pequeño delay
-        setTimeout(() => startRecognition(), 200);
-      }
-    };
-
-    recognition.onerror = (event: any) => {
-      isRestarting = false;
-      if (event.error === "no-speech" || event.error === "aborted") {
-        if (!stoppedRef.current) setTimeout(() => startRecognition(), 200);
-      } else {
-        setError("Error con el micrófono. Intenta de nuevo.");
-        stoppedRef.current = true;
-        setIsListening(false);
-      }
-    };
-
-    recognitionRef.current = recognition;
-    try {
-      recognition.start();
-    } catch {
-      isRestarting = false;
-      if (!stoppedRef.current) setTimeout(() => startRecognition(), 300);
+  // --- Control de voz ---
+  function toggleVoice() {
+    if (isListening) {
+      stoppedRef.current = true;
+      recognitionRef.current?.abort();
+      recognitionRef.current = null;
+      setIsListening(false);
+      return;
     }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError("Tu navegador no soporta reconocimiento de voz. Usa Chrome o Edge.");
+      return;
+    }
+
+    stoppedRef.current = false;
+    let fullTranscript = "";
+    let isRestarting = false;
+
+    function startRecognition() {
+      if (stoppedRef.current || isRestarting) return;
+      isRestarting = true;
+
+      const recognition = new SpeechRecognition();
+      recognition.lang = "es-MX";
+      recognition.continuous = false;
+      recognition.interimResults = true;
+
+      recognition.onstart = () => { isRestarting = false; };
+
+      recognition.onresult = (event: any) => {
+        let interim = "";
+        let final = "";
+        for (let i = 0; i < event.results.length; i++) {
+          if (event.results[i].isFinal) final += event.results[i][0].transcript + " ";
+          else interim += event.results[i][0].transcript;
+        }
+        if (final) fullTranscript += final;
+        setInput((fullTranscript + interim).trim());
+      };
+
+      recognition.onend = () => {
+        isRestarting = false;
+        if (stoppedRef.current) {
+          setIsListening(false);
+          const text = fullTranscript.trim();
+          if (text) setTimeout(() => send(text), 100);
+        } else {
+          setTimeout(() => startRecognition(), 200);
+        }
+      };
+
+      recognition.onerror = () => {
+        isRestarting = false;
+        if (!stoppedRef.current) setTimeout(() => startRecognition(), 200);
+      };
+
+      recognitionRef.current = recognition;
+      try { recognition.start(); } catch { isRestarting = false; }
+    }
+
+    setIsListening(true);
+    startRecognition();
   }
 
-  setIsListening(true);
-  startRecognition();
-}
-  // ── File / Image Upload ──
+  // --- Carga de archivos ---
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -234,207 +347,200 @@ function toggleVoice() {
         let text = "";
         const decoder = new TextDecoder("utf-8", { fatal: false });
         const raw = decoder.decode(bytes);
-
         const btMatches = raw.match(/BT\s([\s\S]*?)ET/g);
         if (btMatches) {
           for (const block of btMatches) {
             const tjMatches = block.match(/\(([^)]*)\)/g);
             if (tjMatches) {
-              for (const tj of tjMatches) {
-                text += tj.slice(1, -1) + " ";
-              }
+              for (const tj of tjMatches) text += tj.slice(1, -1) + " ";
             }
           }
         }
-
         if (text.trim().length < 20) {
           text = raw.replace(/[^\x20-\x7E\xC0-\xFF\n]/g, " ").replace(/\s{3,}/g, "\n").trim();
           if (text.length > 3000) text = text.slice(0, 3000);
         }
-
-        if (text.trim().length < 10) {
-          setError("No se pudo extraer texto del PDF. Intenta con otro archivo.");
-          return;
-        }
-
-        setAttachment({
-          type: "pdf",
-          name: file.name,
-          content: text.trim().slice(0, 3000),
-        });
+        setAttachment({ type: "pdf", name: file.name, content: text.trim().slice(0, 3000) });
         setInput(`Analiza y resume el contenido de este PDF: "${file.name}"`);
-      } catch {
-        setError("Error al leer el archivo PDF.");
-      }
+      } catch { setError("Error al leer el archivo PDF."); }
     } else if (file.type.startsWith("image/")) {
       const reader = new FileReader();
       reader.onload = (event) => {
-        const base64Data = event.target?.result as string;
-        setAttachment({
-          type: "image",
-          name: file.name,
-          content: base64Data,
-          mediaType: file.type,
-        });
+        setAttachment({ type: "image", name: file.name, content: event.target?.result as string, mediaType: file.type });
         setInput(`Analiza esta imagen: "${file.name}"`);
       };
-      reader.onerror = () => setError("Error al leer la imagen.");
       reader.readAsDataURL(file);
-    } else {
-      setError("Solo se aceptan archivos PDF o imágenes (JPG, PNG, WEBP, etc).");
     }
-
-    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   return (
-    <div className="flex flex-col h-full gap-0">
-      {error && (
-        <div className="mb-3 flex animate-slide-up items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-2.5 text-xs text-yellow-400">
-          <AlertTriangle size={16} className="flex-shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
+    <div className="flex h-screen w-full gap-0 overflow-hidden text-primary">
 
-      <div className="flex-1 overflow-y-auto flex flex-col gap-4 pr-2 pb-4">
-        {messages.length === 0 && !loading && (
-          <div className="flex flex-col items-center justify-center h-full gap-4 opacity-50">
-            <Bot size={48} strokeWidth={1.2} />
-            <p className="text-center text-sm text-secondary">
-              Pregúntale a MedBot lo que necesites
-            </p>
-            <p className="mx-auto max-w-xs text-center text-xs text-secondary">
-              También puedes usar el micrófono 🎤 o subir un PDF 📄
-            </p>
-          </div>
-        )}
-
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`flex animate-slide-up items-start gap-3 ${
-              msg.role === "user" ? "flex-row-reverse" : "flex-row"
-            }`}
+      {/* ── NAVBAR LATERAL (SIDEBAR) ── */}
+      <div className="w-64 h-full bg-black/30 border-r border-white/10 flex flex-col justify-between backdrop-blur-md shrink-0">
+        <div className="flex flex-col flex-1 overflow-hidden p-3 gap-3">
+          {/* Botón de Nuevo Chat */}
+          <button
+            onClick={createNewChat}
+            className="flex items-center gap-2 w-full border border-purple-500/30 bg-purple-600/10 hover:bg-purple-600/20 text-sm font-medium rounded-xl p-3 text-purple-200 transition-all shadow-md active:scale-[0.98]"
           >
-            <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 bg-gradient-to-br ${
-              msg.role === "user"
-                ? "from-purple-600 to-fuchsia-500"
-                : "from-purple-700 to-fuchsia-600"
-            }`}>
-              {msg.role === "user" ? <User size={18} /> : <Bot size={18} />}
-            </div>
-            <div className={`max-w-xs rounded-3xl border border-purple-500/15 px-5 py-3.5 text-sm leading-relaxed text-primary backdrop-blur-md ${
-              msg.role === "user"
-                ? "bg-gradient-to-br from-purple-600/35 to-fuchsia-600/20"
-                : "bg-white/5"
-            }`}>
-              {msg.image && (
-                <img
-                  src={msg.image}
-                  alt="Adjunto"
-                  className="w-full max-h-56 object-contain rounded-lg mb-2.5 border border-white/10"
-                />
-              )}
-              {msg.role === "assistant" ? (
-                <MarkdownContent variant="chat">{msg.content}</MarkdownContent>
-              ) : (
-                msg.content
-              )}
-            </div>
-          </div>
-        ))}
+            <Plus size={16} />
+            Nuevo historial médico
+          </button>
 
-        {loading && (
-          <div className="flex animate-slide-up items-start gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-purple-700 to-fuchsia-600">
-              <Bot size={18} />
-            </div>
-            <div className="flex items-center gap-1.5 rounded-3xl border border-purple-500/15 bg-white/5 px-5 py-3.5 backdrop-blur-md">
-              <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:0s]" />
-              <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:150ms]" />
-              <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:300ms]" />
-            </div>
+          {/* Lista de Chats Guardados */}
+          <div className="flex flex-col gap-1 overflow-y-auto flex-1 pr-1 select-none">
+            <p className="text-[10px] uppercase tracking-wider font-semibold opacity-40 px-2 py-1">Historial Reciente</p>
+            {chats.length === 0 ? (
+              <p className="text-xs opacity-30 text-center py-4 italic">No hay consultas guardadas</p>
+            ) : (
+              chats.map((chat) => (
+                <div
+                  key={chat.id}
+                  onClick={() => selectChat(chat.id)}
+                  className={`group flex items-center justify-between w-full rounded-xl px-3 py-2.5 text-xs font-medium cursor-pointer transition-all ${currentChatId === chat.id
+                      ? "bg-gradient-to-r from-purple-600/30 to-fuchsia-600/15 border border-purple-500/20 text-purple-200"
+                      : "hover:bg-white/5 text-secondary"
+                    }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <MessageSquare size={14} className="opacity-60 shrink-0" />
+                    <span className="truncate">{chat.title}</span>
+                  </div>
+                  <button
+                    onClick={(e) => deleteChat(chat.id, e)}
+                    className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-red-500/20 text-secondary hover:text-red-400 transition-all"
+                    title="Eliminar consulta"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))
+            )}
           </div>
-        )}
-        <div ref={messagesEndRef} />
+        </div>
+
+        {/* Footer del Sidebar */}
+        <div className="p-3 border-t border-white/5 bg-black/10 text-[11px] opacity-40 text-center font-mono">
+          MedBot Local Storage v1.0
+        </div>
       </div>
 
-      {attachment && (
-        <div className="mb-2 flex animate-slide-up items-center gap-2 rounded-lg border border-purple-500/25 bg-purple-600/15 px-3.5 py-2 text-xs text-purple-300">
-          {attachment.type === "pdf" ? <FileUp size={15} /> : <ImageIcon size={15} />}
-          <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap">
-            {attachment.type === "image" && (
-              <img
-                src={attachment.content}
-                alt="Thumbnail"
-                className="w-6 h-6 rounded object-cover border border-white/10"
-              />
-            )}
-            {attachment.type === "pdf" ? "📄" : "📷"} {attachment.name} adjunto
-          </span>
+      {/* ── CONTENIDO PRINCIPAL (CHAT AREA) ── */}
+      <div className="flex-1 flex flex-col h-full bg-transparent p-4 md:p-6 overflow-hidden">
+        {error && (
+          <div className="mb-3 flex animate-slide-up items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-2.5 text-xs text-yellow-400">
+            <AlertTriangle size={16} className="flex-shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* Ventana de mensajes */}
+        <div className="flex-1 overflow-y-auto flex flex-col gap-4 pr-2 pb-4">
+          {messages.length === 0 && !loading && (
+            <div className="flex flex-col items-center justify-center h-full gap-4 opacity-50">
+              <Bot size={48} strokeWidth={1.2} />
+              <p className="text-center text-sm text-secondary">Pregúntale a MedBot lo que necesites</p>
+              <p className="mx-auto max-w-xs text-center text-xs text-secondary">
+                Tu historial de consultas se guardará automáticamente en el panel izquierdo.
+              </p>
+            </div>
+          )}
+
+          {messages.map((msg, i) => (
+            <div
+              key={i}
+              className={`flex animate-slide-up items-start gap-3 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"
+                }`}
+            >
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 bg-gradient-to-br ${msg.role === "user" ? "from-purple-600 to-fuchsia-500" : "from-purple-700 to-fuchsia-600"
+                }`}>
+                {msg.role === "user" ? <User size={18} /> : <Bot size={18} />}
+              </div>
+              <div className={`max-w-xl rounded-3xl border border-purple-500/15 px-5 py-3.5 text-sm leading-relaxed backdrop-blur-md ${msg.role === "user" ? "bg-gradient-to-br from-purple-600/35 to-fuchsia-600/20" : "bg-white/5"
+                }`}>
+                {msg.image && (
+                  <img src={msg.image} alt="Adjunto" className="w-full max-h-56 object-contain rounded-lg mb-2.5 border border-white/10" />
+                )}
+                {msg.role === "assistant" ? (
+                  <MarkdownContent variant="chat">{msg.content}</MarkdownContent>
+                ) : (
+                  msg.content
+                )}
+              </div>
+            </div>
+          ))}
+
+          {loading && (
+            <div className="flex animate-slide-up items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-purple-700 to-fuchsia-600">
+                <Bot size={18} />
+              </div>
+              <div className="flex items-center gap-1.5 rounded-3xl border border-purple-500/15 bg-white/5 px-5 py-3.5 backdrop-blur-md">
+                <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:0s]" />
+                <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:150ms]" />
+                <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:300ms]" />
+              </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Archivos Adjuntos actuales */}
+        {attachment && (
+          <div className="mb-2 flex animate-slide-up items-center gap-2 rounded-lg border border-purple-500/25 bg-purple-600/15 px-3.5 py-2 text-xs text-purple-300 max-w-xl">
+            {attachment.type === "pdf" ? <FileUp size={15} /> : <ImageIcon size={15} />}
+            <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap">
+              {attachment.type === "image" && (
+                <img src={attachment.content} alt="Thumbnail" className="w-6 h-6 rounded object-cover border border-white/10" />
+              )}
+              {attachment.type === "pdf" ? "📄" : "📷"} {attachment.name} adjunto
+            </span>
+            <button type="button" onClick={() => setAttachment(null)} className="ml-auto text-purple-300 hover:text-purple-100 font-bold">✕</button>
+          </div>
+        )}
+
+        {/* Input Bar */}
+        <div className="flex gap-2 pt-4 border-t border-white/10 items-center">
+          <input ref={fileInputRef} type="file" accept=".pdf, image/*" onChange={handleFileUpload} className="hidden" />
+
           <button
-            type="button"
-            onClick={() => setAttachment(null)}
-            className="ml-auto shrink-0 cursor-pointer border-0 bg-transparent text-base leading-none text-purple-300 transition-colors hover:text-purple-200"
-            aria-label="Quitar adjunto"
+            onClick={() => fileInputRef.current?.click()}
+            title="Subir archivo"
+            className={`w-12 h-12 rounded-2xl border transition-all flex items-center justify-center ${attachment ? "border-purple-400/50 bg-purple-600/15 text-purple-300" : "border-white/10 bg-white/5 text-secondary hover:bg-white/10"
+              }`}
           >
-            ✕
+            <FileUp size={20} />
+          </button>
+
+          <button
+            onClick={toggleVoice}
+            title={isListening ? "Detener" : "Hablar"}
+            className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition-all ${isListening ? "border-red-500/50 bg-red-600/15 text-red-400 animate-pulse" : "border-white/10 bg-white/5 text-secondary hover:bg-white/10"
+              }`}
+          >
+            {isListening ? <MicOff size={20} /> : <Mic size={20} />}
+          </button>
+
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && send()}
+            placeholder={isListening ? "Escuchando... presione Enter o el botón para enviar" : "Pregúntame algo de medicina..."}
+            className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-5 py-3.5 text-sm text-primary outline-none transition-all focus:border-purple-500/50"
+          />
+
+          <button
+            onClick={() => send()}
+            disabled={loading || !input.trim()}
+            className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${loading || !input.trim() ? "bg-white/5 text-secondary cursor-not-allowed" : "bg-gradient-to-br from-purple-600 to-fuchsia-500 text-white"
+              }`}
+          >
+            <Send size={20} />
           </button>
         </div>
-      )}
-
-      <div className="flex gap-2 pt-4 border-t border-border items-center">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf, image/*"
-          onChange={handleFileUpload}
-          className="hidden"
-        />
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          title="Subir archivo o imagen"
-          className={`w-12 h-12 rounded-2xl border transition-all flex-shrink-0 flex items-center justify-center ${
-            attachment
-              ? "border-purple-400/50 bg-purple-600/15 text-purple-300"
-              : "border-border bg-white/5 text-secondary hover:bg-white/10"
-          }`}
-        >
-          <FileUp size={20} />
-        </button>
-
-        <button
-          onClick={toggleVoice}
-          title={isListening ? "Toca para enviar" : "Activar micrófono"}
-          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border transition-all ${
-            isListening
-              ? "animate-pulse-mic border-red-500/50 bg-red-600/15 text-red-400"
-              : "border-border bg-white/5 text-secondary hover:bg-white/10"
-          }`}
-        >
-          {isListening ? <MicOff size={20} /> : <Mic size={20} />}
-        </button>
-
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send()}
-          placeholder={isListening ? "Hablando... toca el mic para enviar" : "Pregúntame algo de medicina..."}
-          className="flex-1 rounded-xl border border-border bg-white/5 px-5 py-3.5 text-sm text-primary outline-none transition-all focus:border-purple-500/50 focus:shadow-lg focus:shadow-purple-500/15"
-        />
-
-        <button
-          onClick={() => send()}
-          disabled={loading || !input.trim()}
-          className={`w-14 h-14 rounded-xl border-none flex-shrink-0 flex items-center justify-center transition-all ${
-            loading || !input.trim()
-              ? "cursor-not-allowed bg-white/10 text-secondary"
-              : "bg-gradient-to-br from-purple-600 to-fuchsia-500 text-white hover:shadow-lg hover:shadow-purple-500/25"
-          }`}
-        >
-          <Send size={20} />
-        </button>
       </div>
+
     </div>
   );
 }
