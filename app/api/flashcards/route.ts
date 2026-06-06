@@ -8,7 +8,7 @@ export async function POST(req: Request) {
         const { messages } = await req.json();
 
         const response = await cliente.messages.create({
-            model: "claude-haiku-4-5-20251001",
+            model: "claude-sonnet-4-20250514",
             max_tokens: 2048,
 
             system: `
