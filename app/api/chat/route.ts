@@ -67,7 +67,7 @@ export async function POST(requ: Request) {
     const { messages } = await requ.json();
 
     const response = await cliente.messages.create({
-      model: "claude-3-5-sonnet-latest",
+      model: "claude-haiku-4-520251001",
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       messages,
