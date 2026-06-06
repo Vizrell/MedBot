@@ -79,22 +79,19 @@ export async function POST(requ: Request) {
         : "";
 
     return NextResponse.json({ reply: text });
-  } catch (err: unknown) {
-    const message =
-      err instanceof Error
-        ? err.message
-        : "Error desconocido del servidor";
-
-    const status =
-      typeof err === "object" &&
-        err !== null &&
-        "status" in err
-        ? (err as { status: number }).status
-        : 500;
+  }
+  catch (err: any) {
+    console.error("ERROR ANTHROPIC:", err);
 
     return NextResponse.json(
-      { error: message },
-      { status: typeof status === "number" ? status : 500 }
+      {
+        error: err?.message,
+        status: err?.status,
+        type: err?.error?.type,
+      },
+      {
+        status: err?.status || 500,
+      }
     );
   }
 }

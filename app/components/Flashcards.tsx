@@ -55,16 +55,35 @@ export default function Flashcards() {
     setError(null);
 
     try {
-      const res = await fetch("/api/chat", {
+      const res = await fetch("/api/flashcards", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [
             {
               role: "user",
-              content: `Genera exactamente 8 flashcards sobre "${topic.trim()}" para un estudiante de medicina de primer año.
-Responde ÚNICAMENTE con un JSON válido, sin texto extra, sin backticks, sin explicaciones:
-[{"question":"pregunta aquí","answer":"respuesta clara y concisa aquí"}]`,
+              content: `
+              Genera exactamente 8 flashcards sobre "${topic.trim()}".
+
+              Reglas:
+
+              - Español.
+              - Nivel universitario de medicina.
+              - Preguntas cortas.
+              - Respuestas claras.
+              - No usar markdown.
+              - No usar listas.
+              - No usar texto adicional.
+
+              Devuelve EXCLUSIVAMENTE este formato JSON:
+
+              [
+                {
+                  "question": "Pregunta",
+                  "answer": "Respuesta"
+                }
+              ]
+              `,
             },
           ],
         }),
@@ -73,11 +92,10 @@ Responde ÚNICAMENTE con un JSON válido, sin texto extra, sin backticks, sin ex
       const data = await res.json();
 
       if (!res.ok) {
-        setError("Sin créditos disponibles — mostrando tarjetas de ejemplo.");
-        setLoading(false);
-        return;
+        throw new Error(
+          data.error || "Error generando flashcards"
+        );
       }
-
       // Limpiar respuesta por si trae backticks o texto extra
       const clean = data.reply
         .replace(/```json/g, "")
@@ -94,9 +112,15 @@ Responde ÚNICAMENTE con un JSON válido, sin texto extra, sin backticks, sin ex
       setIndex(0);
       setFlipped(false);
       setIsGenerated(true);
-    } catch {
-      setError("No se pudieron generar las tarjetas. Intenta de nuevo.");
-    } finally {
+    } catch (err: any) {
+      console.error("ERROR COMPLETO:", err);
+
+      setError(
+        err?.message ||
+        "No se pudieron generar las tarjetas."
+      );
+    }
+    finally {
       setLoading(false);
     }
   }
@@ -116,11 +140,10 @@ Responde ÚNICAMENTE con un JSON válido, sin texto extra, sin backticks, sin ex
         <button
           onClick={generate}
           disabled={loading || !topic.trim()}
-          className={`flex items-center gap-2 rounded-xl border-none px-5 py-3 text-sm font-semibold transition-all ${
-            loading || !topic.trim()
-              ? "cursor-not-allowed bg-white/10 text-secondary"
-              : "bg-gradient-to-br from-purple-600 to-fuchsia-500 text-white hover:shadow-lg hover:shadow-purple-500/25"
-          }`}
+          className={`flex items-center gap-2 rounded-xl border-none px-5 py-3 text-sm font-semibold transition-all ${loading || !topic.trim()
+            ? "cursor-not-allowed bg-white/10 text-secondary"
+            : "bg-gradient-to-br from-purple-600 to-fuchsia-500 text-white hover:shadow-lg hover:shadow-purple-500/25"
+            }`}
         >
           <Sparkles size={16} />
           {loading ? "Generando..." : "Generar"}
@@ -188,9 +211,8 @@ Responde ÚNICAMENTE con un JSON válido, sin texto extra, sin backticks, sin ex
           }}
           className="h-72 w-full max-w-md cursor-pointer [perspective:1000px]"
         >
-          <div className={`relative h-full w-full transition-transform duration-500 ease-out [transform-style:preserve-3d] ${
-            flipped ? "[transform:rotateY(180deg)]" : ""
-          }`}>
+          <div className={`relative h-full w-full transition-transform duration-500 ease-out [transform-style:preserve-3d] ${flipped ? "[transform:rotateY(180deg)]" : ""
+            }`}>
             {/* Frente */}
             <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl border border-purple-500/25 bg-gradient-to-br from-purple-600/25 to-fuchsia-500/10 p-8 text-center shadow-lg shadow-purple-900/20 backdrop-blur-sm [backface-visibility:hidden]">
               <p className="mb-5 text-xs font-semibold uppercase tracking-widest text-purple-300">Pregunta</p>
