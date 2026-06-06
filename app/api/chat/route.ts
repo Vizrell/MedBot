@@ -63,6 +63,7 @@ con 3 a 5 puntos clave.
 `;
 
 export async function POST(requ: Request) {
+  console.log("Api chat recibio una peticion")
   try {
     const { messages } = await requ.json();
 
