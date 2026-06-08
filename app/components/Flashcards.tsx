@@ -63,7 +63,7 @@ export default function Flashcards() {
             {
               role: "user",
               content: `
-              Genera exactamente 8 flashcards sobre "${topic.trim()}".
+              Genera exactamente 20 flashcards sobre "${topic.trim()}".
 
               Reglas:
 

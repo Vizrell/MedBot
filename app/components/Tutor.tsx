@@ -1,6 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, AlertTriangle, Mic, MicOff, FileUp, Image as ImageIcon, MessageSquare, Plus, Trash2 } from "lucide-react";
+import { Send, Bot, User, AlertTriangle, Mic, MicOff, FileUp, Image as ImageIcon, MessageSquare, Plus, Trash2, Volume2, VolumeX } from "lucide-react";
 import MarkdownContent from "./MarkdownContent";
 
 interface Message {
@@ -52,6 +52,10 @@ export default function Tutor() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
+
+  // ── NUEVO ESTADO: Control de voz del Bot (Mutear / Hablar) ──
+  const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
+
   const [attachment, setAttachment] = useState<{
     type: "pdf" | "image";
     name: string;
@@ -72,7 +76,6 @@ export default function Tutor() {
       const parsedChats = JSON.parse(savedChats);
       setChats(parsedChats);
       if (parsedChats.length > 0) {
-        // Cargar el último chat activo por defecto
         const lastChat = parsedChats[0];
         setCurrentChatId(lastChat.id);
         setMessages(lastChat.messages);
@@ -81,7 +84,35 @@ export default function Tutor() {
     }
   }, []);
 
-  // --- Guardar chats en LocalStorage automáticamente ante cualquier cambio ---
+  useEffect(() => {
+    function handlePaste(e: ClipboardEvent) {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (!file) continue;
+
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            setAttachment({
+              type: "image",
+              name: "captura.png",
+              content: event.target?.result as string,
+              mediaType: item.type,
+            });
+          };
+          reader.readAsDataURL(file);
+          break;
+        }
+      }
+    }
+
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, []);
+
   const saveToLocalStorage = (updatedChats: ChatSession[]) => {
     setChats(updatedChats);
     localStorage.setItem("medbot_local_chats", JSON.stringify(updatedChats));
@@ -95,7 +126,6 @@ export default function Tutor() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  // --- Crear nuevo Chat Vacío ---
   function createNewChat() {
     window.speechSynthesis.cancel();
     setCurrentChatId(null);
@@ -105,7 +135,6 @@ export default function Tutor() {
     setAttachment(null);
   }
 
-  // --- Cambiar entre un chat y otro ---
   function selectChat(chatId: string) {
     window.speechSynthesis.cancel();
     const selected = chats.find(c => c.id === chatId);
@@ -116,9 +145,8 @@ export default function Tutor() {
     }
   }
 
-  // --- Borrar un chat ---
   function deleteChat(chatId: string, e: React.MouseEvent) {
-    e.stopPropagation(); // Evita que se seleccione el chat al intentar borrarlo
+    e.stopPropagation();
     const updatedChats = chats.filter(c => c.id !== chatId);
     saveToLocalStorage(updatedChats);
 
@@ -134,10 +162,17 @@ export default function Tutor() {
 
     if ((!textToSend.trim() && !currentAttachment) || loading) return;
 
-    let apiMessageContent: any = textToSend.trim();
+    let baseText = textToSend.trim();
+    if (!baseText && currentAttachment) {
+      baseText = currentAttachment.type === "pdf"
+        ? `Analiza y resume el contenido de este PDF: "${currentAttachment.name}"`
+        : `Analiza esta imagen médica: "${currentAttachment.name}"`;
+    }
+
+    let apiMessageContent: any = baseText;
     if (currentAttachment) {
       if (currentAttachment.type === "pdf") {
-        apiMessageContent = `[Contenido del PDF "${currentAttachment.name}"]: \n${currentAttachment.content}\n\n---\n\nPregunta del usuario: ${textToSend.trim()}`;
+        apiMessageContent = `[Contenido completo del PDF "${currentAttachment.name}"]: \n${currentAttachment.content}\n\n---\n\nPregunta del usuario: ${baseText}`;
       } else if (currentAttachment.type === "image") {
         const base64Raw = currentAttachment.content.split(",")[1];
         apiMessageContent = [
@@ -149,14 +184,14 @@ export default function Tutor() {
               data: base64Raw,
             },
           },
-          { type: "text", text: textToSend.trim() },
+          { type: "text", text: baseText },
         ];
       }
     }
 
     const userMsg: Message = {
       role: "user",
-      content: textToSend.trim(),
+      content: baseText,
       image: currentAttachment?.type === "image" ? currentAttachment.content : undefined,
     };
 
@@ -172,7 +207,6 @@ export default function Tutor() {
     const isImageSent = currentAttachment?.type === "image";
     setAttachment(null);
 
-    // Determinar o crear la sesión del chat actual
     let chatId = currentChatId;
     let currentChatsCopy = [...chats];
 
@@ -181,7 +215,7 @@ export default function Tutor() {
       setCurrentChatId(chatId);
       const newChat: ChatSession = {
         id: chatId,
-        title: textToSend.trim().length > 25 ? textToSend.trim().substring(0, 25) + "..." : textToSend.trim(),
+        title: baseText.length > 25 ? baseText.substring(0, 25) + "..." : baseText,
         messages: updatedMessages,
         apiHistory: updatedApiHistory,
         createdAt: new Date().toLocaleDateString(),
@@ -216,13 +250,13 @@ export default function Tutor() {
       setMessages(finalMessages);
       setApiHistory(finalApiHistory);
 
-      // Actualizar chat con la respuesta de la IA
       const finalChats = currentChatsCopy.map(c =>
         c.id === chatId ? { ...c, messages: finalMessages, apiHistory: finalApiHistory } : c
       );
       saveToLocalStorage(finalChats);
 
-      if (isListening || textOverride) speak(assistantResponse);
+      // Modificado: Solo habla si voiceEnabled es true
+      if (voiceEnabled && (isListening || textOverride)) speak(assistantResponse);
 
     } catch {
       const mock = isImageSent
@@ -238,7 +272,8 @@ export default function Tutor() {
       );
       saveToLocalStorage(finalChats);
 
-      if (isListening || textOverride) speak(mock);
+      // Modificado: Solo habla si voiceEnabled es true
+      if (voiceEnabled && (isListening || textOverride)) speak(mock);
     } finally {
       setLoading(false);
     }
@@ -246,21 +281,31 @@ export default function Tutor() {
 
   // --- Voice Speak ---
   function speak(text: string) {
+    // Verificación de seguridad extra por si acaso
+    if (!voiceEnabled) return;
+
     const cleanedText = cleanForSpeech(text);
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(cleanedText);
     utterance.lang = "es-MX";
     utterance.rate = 0.95;
+    utterance.pitch = 1;
+    utterance.volume = 1;
 
     const voices = window.speechSynthesis.getVoices();
-    const spanishVoice = voices.find(v => v.lang.includes("es"));
-    if (spanishVoice) utterance.voice = spanishVoice;
+    const spanishVoice =
+      voices.find(v => v.name.includes("Microsoft")) ||
+      voices.find(v => v.lang.startsWith("es"));
+
+    if (spanishVoice) {
+      utterance.voice = spanishVoice;
+    }
 
     window.speechSynthesis.speak(utterance);
   }
 
-  // --- Control de voz ---
+  // --- Control de dictado de voz del usuario ---
   function toggleVoice() {
     if (isListening) {
       stoppedRef.current = true;
@@ -326,48 +371,87 @@ export default function Tutor() {
     startRecognition();
   }
 
-  // --- Carga de archivos ---
+  // --- Función para silenciar manualmente el habla actual del bot ---
+  function toggleBotVoiceOutput() {
+    if (voiceEnabled) {
+      window.speechSynthesis.cancel(); // Calla lo que esté diciendo justo ahora
+    }
+    setVoiceEnabled(!voiceEnabled);
+  }
+
+  // --- Manejo de archivos PDF/Imágenes ---
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setError(null);
 
-    if (file.size > 5 * 1024 * 1024) {
-      setError("El archivo no debe superar los 5 MB.");
+    if (file.size > 20 * 1024 * 1024) {
+      setError("El archivo supera el límite permitido de 20 MB.");
       return;
     }
 
     if (file.type === "application/pdf") {
+      setLoading(true);
+      setError(null);
       try {
         const arrayBuffer = await file.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        let text = "";
-        const decoder = new TextDecoder("utf-8", { fatal: false });
-        const raw = decoder.decode(bytes);
-        const btMatches = raw.match(/BT\s([\s\S]*?)ET/g);
-        if (btMatches) {
-          for (const block of btMatches) {
-            const tjMatches = block.match(/\(([^)]*)\)/g);
-            if (tjMatches) {
-              for (const tj of tjMatches) text += tj.slice(1, -1) + " ";
-            }
-          }
+        const pdfjsLib = await import("pdfjs-dist");
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+
+        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+        const pdf = await loadingTask.promise;
+
+        let fullText = "";
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items
+            // @ts-ignore
+            .map((item) => item.str || "")
+            .join(" ");
+          fullText += pageText + "\n";
         }
-        if (text.trim().length < 20) {
-          text = raw.replace(/[^\x20-\x7E\xC0-\xFF\n]/g, " ").replace(/\s{3,}/g, "\n").trim();
-          if (text.length > 12000) text = text.slice(0, 12000);
+
+        if (fullText.trim().length < 20) {
+          setError("No se pudo extraer texto legible del PDF. Verifica que no sea puramente un escaneo de imágenes.");
+          setLoading(false);
+          return;
         }
-        setAttachment({ type: "pdf", name: file.name, content: text.trim().slice(0, 12000) });
+
+        setAttachment({
+          type: "pdf",
+          name: file.name,
+          content: fullText.trim()
+        });
+
         setInput(`Analiza y resume el contenido de este PDF: "${file.name}"`);
-      } catch { setError("Error al leer el archivo PDF."); }
+      } catch (err) {
+        console.error(err);
+        setError("Error al leer el archivo PDF con el cargador dinámico.");
+      } finally {
+        setLoading(false);
+      }
     } else if (file.type.startsWith("image/")) {
+      if (file.size > 4 * 1024 * 1024) {
+        setError("Para capturas o imágenes médicas, se recomienda un peso menor a 4 MB por restricciones de Vercel.");
+        return;
+      }
       const reader = new FileReader();
       reader.onload = (event) => {
-        setAttachment({ type: "image", name: file.name, content: event.target?.result as string, mediaType: file.type });
+        setAttachment({
+          type: "image",
+          name: file.name,
+          content: event.target?.result as string,
+          mediaType: file.type
+        });
         setInput(`Analiza esta imagen: "${file.name}"`);
       };
       reader.readAsDataURL(file);
+    } else {
+      setError("Solo se aceptan archivos PDF o imágenes válidas.");
     }
+
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   return (
@@ -376,7 +460,6 @@ export default function Tutor() {
       {/* ── NAVBAR LATERAL (SIDEBAR) ── */}
       <div className="w-64 h-full bg-black/30 border-r border-white/10 flex flex-col justify-between backdrop-blur-md shrink-0">
         <div className="flex flex-col flex-1 overflow-hidden p-3 gap-3">
-          {/* Botón de Nuevo Chat */}
           <button
             onClick={createNewChat}
             className="flex items-center gap-2 w-full border border-purple-500/30 bg-purple-600/10 hover:bg-purple-600/20 text-sm font-medium rounded-xl p-3 text-purple-200 transition-all shadow-md active:scale-[0.98]"
@@ -385,7 +468,6 @@ export default function Tutor() {
             Nuevo historial médico
           </button>
 
-          {/* Lista de Chats Guardados */}
           <div className="flex flex-col gap-1 overflow-y-auto flex-1 pr-1 select-none">
             <p className="text-[10px] uppercase tracking-wider font-semibold opacity-40 px-2 py-1">Historial Reciente</p>
             {chats.length === 0 ? (
@@ -417,7 +499,6 @@ export default function Tutor() {
           </div>
         </div>
 
-        {/* Footer del Sidebar */}
         <div className="p-3 border-t border-white/5 bg-black/10 text-[11px] opacity-40 text-center font-mono">
           MedBot Local Storage v1.0
         </div>
@@ -491,9 +572,9 @@ export default function Tutor() {
               {attachment.type === "image" && (
                 <img src={attachment.content} alt="Thumbnail" className="w-6 h-6 rounded object-cover border border-white/10" />
               )}
-              {attachment.type === "pdf" ? "📄" : "📷"} {attachment.name} adjunto
+              {attachment.type === "pdf" ? "📄" : "📷"} {attachment.name} ({((attachment.content.length * 2) / 1024).toFixed(1)} KB extraídos)
             </span>
-            <button type="button" onClick={() => setAttachment(null)} className="ml-auto text-purple-300 hover:text-purple-100 font-bold">✕</button>
+            <button type="button" onClick={() => { setAttachment(null); setInput(""); }} className="ml-auto text-purple-300 hover:text-purple-100 font-bold">✕</button>
           </div>
         )}
 
@@ -503,6 +584,7 @@ export default function Tutor() {
 
           <button
             onClick={() => fileInputRef.current?.click()}
+            disabled={loading}
             title="Subir archivo"
             className={`w-12 h-12 rounded-2xl border transition-all flex items-center justify-center ${attachment ? "border-purple-400/50 bg-purple-600/15 text-purple-300" : "border-white/10 bg-white/5 text-secondary hover:bg-white/10"
               }`}
@@ -519,18 +601,28 @@ export default function Tutor() {
             {isListening ? <MicOff size={20} /> : <Mic size={20} />}
           </button>
 
+          {/* ── NUEVO BOTÓN: Activar/Desactivar altavoz del Bot ── */}
+          <button
+            onClick={toggleBotVoiceOutput}
+            title={voiceEnabled ? "Silenciar respuestas del bot" : "Escuchar respuestas del bot"}
+            className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition-all ${voiceEnabled ? "border-purple-500/30 bg-purple-600/10 text-purple-400" : "border-white/10 bg-white/5 text-secondary/50 hover:bg-white/10"
+              }`}
+          >
+            {voiceEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
+          </button>
+
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && send()}
-            placeholder={isListening ? "Escuchando... presione Enter o el botón para enviar" : "Pregúntame algo de medicina..."}
+            placeholder={isListening ? "Escuchando... presione Enter o el botón para enviar" : attachment ? "Escribe una duda sobre el archivo o presiona Enviar..." : "Pregúntame algo de medicina (PDF hasta 20MB)..."}
             className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-5 py-3.5 text-sm text-primary outline-none transition-all focus:border-purple-500/50"
           />
 
           <button
             onClick={() => send()}
-            disabled={loading || !input.trim()}
-            className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${loading || !input.trim() ? "bg-white/5 text-secondary cursor-not-allowed" : "bg-gradient-to-br from-purple-600 to-fuchsia-500 text-white"
+            disabled={loading || (!input.trim() && !attachment)}
+            className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${loading || (!input.trim() && !attachment) ? "bg-white/5 text-secondary cursor-not-allowed" : "bg-gradient-to-br from-purple-600 to-fuchsia-500 text-white"
               }`}
           >
             <Send size={20} />

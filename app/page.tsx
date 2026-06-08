@@ -1,13 +1,15 @@
 "use client";
 import { useState } from "react";
-import { Stethoscope, BookOpen, Sparkles, Activity } from "lucide-react";
+import { Stethoscope, BookOpen, Sparkles, Activity, HelpCircle } from "lucide-react";
 import Tutor from "./components/Tutor";
 import Flashcards from "./components/Flashcards";
 import Resumir from "./components/Resumir";
+import Quiz from "./components/Quiz"; // Importamos tu nuevo componente
 
 const TABS = [
   { id: "tutor", label: "Tutor", icon: Stethoscope },
   { id: "flashcards", label: "Flashcards", icon: BookOpen },
+  { id: "quiz", label: "Quiz", icon: HelpCircle }, // Agregado a la barra de navegación
   { id: "resumir", label: "Resumir", icon: Sparkles },
 ] as const;
 
@@ -48,8 +50,8 @@ export default function Home() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex-1 flex items-center justify-center gap-2 px-2 py-2.5 rounded-xl text-xs md:text-sm transition-all duration-300 select-none ${isActive
-                    ? "border border-purple-500/25 bg-gradient-to-br from-purple-600/25 to-fuchsia-500/10 font-semibold text-purple-300 shadow-sm"
-                    : "font-normal text-secondary hover:text-primary border border-transparent hover:bg-white/5"
+                  ? "border border-purple-500/25 bg-gradient-to-br from-purple-600/25 to-fuchsia-500/10 font-semibold text-purple-300 shadow-sm"
+                  : "font-normal text-secondary hover:text-primary border border-transparent hover:bg-white/5"
                   }`}
               >
                 <Icon size={16} className="shrink-0" />
@@ -60,10 +62,11 @@ export default function Home() {
         </nav>
       </div>
 
-      {/* ── Contenido Principal expandido al 100% ── */}
-      <main className="flex-1 overflow-hidden flex flex-col w-full">
+      {/* ── Contenido Principal expandido al 100% con scroll vertical independiente si el quiz es largo ── */}
+      <main className="flex-1 overflow-y-auto flex flex-col w-full p-4">
         {activeTab === "tutor" && <Tutor />}
         {activeTab === "flashcards" && <Flashcards />}
+        {activeTab === "quiz" && <Quiz />}
         {activeTab === "resumir" && <Resumir />}
       </main>
     </div>
