@@ -13,7 +13,7 @@ const SAMPLE_TOPICS = [
 
 const MOCK_SUMMARIES: Record<string, string> = {
   "sistema cardiovascular": `## Sistema Cardiovascular\n\n**Componentes principales:**\n- **Corazón**: Órgano muscular con 4 cavidades...\n`,
-  "sistema nervioso": `## Sistema Nervioso\n\n### Divisiones\n- **SNC**: Cerebro + Médula espinal...\n`
+  "sistema nervioso": `## Sistema Nervous\n\n### Divisiones\n- **SNC**: Cerebro + Médula espinal...\n`
 };
 
 export default function Resumir() {
@@ -30,6 +30,7 @@ export default function Resumir() {
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ── DETECTOR DE CAPTURAS DE PANTALLA EN PORTAPAPELES (Ctrl + V) ──
   useEffect(() => {
     function handlePaste(e: ClipboardEvent) {
       const items = e.clipboardData?.items;
@@ -42,15 +43,20 @@ export default function Resumir() {
 
           const reader = new FileReader();
           reader.onload = (event) => {
+            const base64Result = event.target?.result as string;
+
             setAttachment({
               type: "image",
-              name: "captura.png",
-              content: event.target?.result as string,
+              name: "captura_portapapeles.png",
+              content: base64Result,
               mediaType: item.type,
             });
-            setTopic("Analiza y resume esta captura de pantalla");
+
+            // Asignamos un texto descriptivo claro para guiar a Claude
+            setTopic("Analiza y resume esta captura de pantalla médica");
           };
           reader.readAsDataURL(file);
+          e.preventDefault(); // Evita interferencias con inputs de texto nativos
           break;
         }
       }
@@ -143,12 +149,14 @@ export default function Resumir() {
   }
 
   async function generate() {
-    if (!topic.trim() && !attachment) return;
+    const currentTopic = topic.trim();
+    if (!currentTopic && !attachment) return;
+
     setLoading(true);
     setSummary("");
     setError(null);
 
-    const key = topic.trim().toLowerCase();
+    const key = currentTopic.toLowerCase();
 
     if (!attachment) {
       const mockMatch = Object.entries(MOCK_SUMMARIES).find(([k]) => key.includes(k));
@@ -161,7 +169,9 @@ export default function Resumir() {
     }
 
     try {
-      let promptContent = `Genera un resumen estructurado sobre: "${topic}". Usa markdown con títulos (##), subtítulos (###) y viñetas.`;
+      // Salvavidas de texto: asegura que siempre haya un prompt por defecto si el usuario borró la caja
+      let basePromptText = currentTopic || (attachment?.type === "pdf" ? `Resumen del documento médico` : `Analiza detalladamente esta imagen médica...`);
+      let promptContent = `Genera un resumen estructurado sobre: "${basePromptText}". Usa markdown con títulos (##), subtítulos (###) y viñetas.`;
       let messagesPayload: any[] = [];
 
       if (attachment) {
@@ -207,7 +217,7 @@ ${attachment.content}
                 },
                 {
                   type: "text",
-                  text: `Analiza detalladamente esta imagen médica...`,
+                  text: basePromptText,
                 },
               ],
             },
@@ -263,6 +273,9 @@ ${attachment.content}
         <div className="flex items-center gap-2 rounded-lg border border-purple-500/25 bg-purple-600/15 px-3.5 py-2 text-xs text-purple-300">
           <FileUp size={15} />
           <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap">
+            {attachment.type === "image" && (
+              <img src={attachment.content} alt="Thumbnail" className="w-6 h-6 rounded object-cover border border-white/10" />
+            )}
             {attachment.type === "image" ? "📷" : "📄"} {attachment.name} ({((attachment.content.length * 2) / 1024).toFixed(1)} KB extraídos)
           </span>
           <button
@@ -291,8 +304,8 @@ ${attachment.content}
           onClick={() => fileInputRef.current?.click()}
           disabled={loading}
           className={`w-12 h-12 rounded-2xl border transition-all flex-shrink-0 flex items-center justify-center ${attachment
-              ? "border-purple-400/50 bg-purple-600/15 text-purple-300"
-              : "border-border bg-white/5 text-secondary hover:bg-white/10"
+            ? "border-purple-400/50 bg-purple-600/15 text-purple-300"
+            : "border-border bg-white/5 text-secondary hover:bg-white/10"
             }`}
         >
           <FileUp size={20} />
@@ -302,15 +315,15 @@ ${attachment.content}
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && generate()}
-          placeholder={loading ? "Extrayendo contenido del documento..." : attachment ? `Listo para procesar: ${attachment.name}` : "Scribe un tema o arrastra un PDF de hasta 20MB..."}
+          placeholder={loading ? "Extrayendo contenido del documento..." : attachment ? `Listo para procesar: ${attachment.name}` : "Escribe un tema, sube un PDF o pega un screenshot..."}
           className="flex-1 rounded-xl border border-border bg-white/5 px-5 py-3.5 text-sm text-primary outline-none focus:border-purple-500/50"
         />
         <button
           onClick={generate}
           disabled={loading || (!topic.trim() && !attachment)}
           className={`px-6 py-3.5 rounded-xl flex items-center gap-2 text-sm font-semibold transition-all ${loading || (!topic.trim() && !attachment)
-              ? "bg-white/10 text-secondary cursor-not-allowed"
-              : "bg-gradient-to-br from-purple-600 to-fuchsia-500 text-white"
+            ? "bg-white/10 text-secondary cursor-not-allowed"
+            : "bg-gradient-to-br from-purple-600 to-fuchsia-500 text-white"
             }`}
         >
           <Sparkles size={18} />
@@ -323,7 +336,7 @@ ${attachment.content}
         <div className="flex flex-1 flex-col gap-3 rounded-xl border border-border bg-white/5 p-6 animate-pulse">
           <div className="h-3.5 rounded-full bg-white/10 w-full" />
           <div className="h-3.5 rounded-full bg-white/10 w-[85%]" />
-          <div className="h-3.5 rounded-full bg-white/10 w-[60%]" />
+          <div className="h-3.5 emitido-full bg-white/10 w-[60%]" />
         </div>
       )}
 
@@ -332,7 +345,7 @@ ${attachment.content}
         <div className="relative flex-1 overflow-y-auto rounded-xl border border-border bg-white/5 p-7">
           <button
             onClick={copyToClipboard}
-            className={`absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-white/10 text-secondary ${copied ? "text-emerald-400" : ""}`}
+            className={`absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-white/10 text-secondary transition-all ${copied ? "text-emerald-400 border-emerald-500/30 bg-emerald-500/10" : ""}`}
           >
             {copied ? <Check size={16} /> : <Copy size={16} />}
           </button>

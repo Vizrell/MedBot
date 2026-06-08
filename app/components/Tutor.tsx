@@ -34,7 +34,7 @@ const MOCK_IMAGE_REPLIES = [
 function cleanForSpeech(text: string): string {
   return text
     .replace(/#{1,6}\s/g, "")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*\*(.*?)\*\"/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/[-•]\s/g, "")
     .replace(/\n+/g, ". ")
@@ -53,7 +53,7 @@ export default function Tutor() {
   const [error, setError] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
 
-  // ── NUEVO ESTADO: Control de voz del Bot (Mutear / Hablar) ──
+  // Control de voz del Bot (Mutear / Hablar)
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
 
   const [attachment, setAttachment] = useState<{
@@ -84,6 +84,7 @@ export default function Tutor() {
     }
   }, []);
 
+  // ── DETECTOR DE CTRL + V OPTIMIZADO PARA SCREENSHOTS DIRECTAS ──
   useEffect(() => {
     function handlePaste(e: ClipboardEvent) {
       const items = e.clipboardData?.items;
@@ -96,14 +97,20 @@ export default function Tutor() {
 
           const reader = new FileReader();
           reader.onload = (event) => {
+            const base64Result = event.target?.result as string;
+
             setAttachment({
               type: "image",
-              name: "captura.png",
-              content: event.target?.result as string,
+              name: "captura_portapapeles.png",
+              content: base64Result,
               mediaType: item.type,
             });
+
+            // Forzamos un texto base para evitar errores de undefined
+            setInput("Analiza esta captura de pantalla médica");
           };
           reader.readAsDataURL(file);
+          e.preventDefault();
           break;
         }
       }
@@ -162,6 +169,7 @@ export default function Tutor() {
 
     if ((!textToSend.trim() && !currentAttachment) || loading) return;
 
+    // Salvavidas de texto: previene fallos si la caja de texto queda vacía pero hay un archivo
     let baseText = textToSend.trim();
     if (!baseText && currentAttachment) {
       baseText = currentAttachment.type === "pdf"
@@ -255,7 +263,7 @@ export default function Tutor() {
       );
       saveToLocalStorage(finalChats);
 
-      // Modificado: Solo habla si voiceEnabled es true
+      // Solo habla si el interruptor de voz está encendido
       if (voiceEnabled && (isListening || textOverride)) speak(assistantResponse);
 
     } catch {
@@ -272,7 +280,6 @@ export default function Tutor() {
       );
       saveToLocalStorage(finalChats);
 
-      // Modificado: Solo habla si voiceEnabled es true
       if (voiceEnabled && (isListening || textOverride)) speak(mock);
     } finally {
       setLoading(false);
@@ -281,7 +288,6 @@ export default function Tutor() {
 
   // --- Voice Speak ---
   function speak(text: string) {
-    // Verificación de seguridad extra por si acaso
     if (!voiceEnabled) return;
 
     const cleanedText = cleanForSpeech(text);
@@ -305,7 +311,7 @@ export default function Tutor() {
     window.speechSynthesis.speak(utterance);
   }
 
-  // --- Control de dictado de voz del usuario ---
+  // --- Control de dictado por voz de usuario ---
   function toggleVoice() {
     if (isListening) {
       stoppedRef.current = true;
@@ -371,15 +377,15 @@ export default function Tutor() {
     startRecognition();
   }
 
-  // --- Función para silenciar manualmente el habla actual del bot ---
+  // --- Silenciar / Activar audio del bot ---
   function toggleBotVoiceOutput() {
     if (voiceEnabled) {
-      window.speechSynthesis.cancel(); // Calla lo que esté diciendo justo ahora
+      window.speechSynthesis.cancel(); // Detiene el habla actual inmediatamente si se desactiva
     }
     setVoiceEnabled(!voiceEnabled);
   }
 
-  // --- Manejo de archivos PDF/Imágenes ---
+  // --- Subida manual de archivos ---
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -601,7 +607,7 @@ export default function Tutor() {
             {isListening ? <MicOff size={20} /> : <Mic size={20} />}
           </button>
 
-          {/* ── NUEVO BOTÓN: Activar/Desactivar altavoz del Bot ── */}
+          {/* Botón de control de voz del Bot */}
           <button
             onClick={toggleBotVoiceOutput}
             title={voiceEnabled ? "Silenciar respuestas del bot" : "Escuchar respuestas del bot"}
@@ -615,7 +621,7 @@ export default function Tutor() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && send()}
-            placeholder={isListening ? "Escuchando... presione Enter o el botón para enviar" : attachment ? "Escribe una duda sobre el archivo o presiona Enviar..." : "Pregúntame algo de medicina (PDF hasta 20MB)..."}
+            placeholder={isListening ? "Escuchando... presione Enter o el botón para enviar" : attachment ? "Escribe una duda sobre el archivo o presiona Enviar..." : "Pregúntame algo de medicina (PDF hasta 20MB o pega una captura)..."}
             className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-5 py-3.5 text-sm text-primary outline-none transition-all focus:border-purple-500/50"
           />
 
