@@ -42,7 +42,7 @@ function cleanForSpeech(text: string): string {
 }
 
 export default function Tutor() {
-  // --- Estados de la App ---
+  // states app
   const [chats, setChats] = useState<ChatSession[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -53,7 +53,7 @@ export default function Tutor() {
   const [error, setError] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
 
-  // Control de voz del Bot (Mutear / Hablar)
+  // control de voz del bot
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
 
   const [attachment, setAttachment] = useState<{
@@ -69,7 +69,7 @@ export default function Tutor() {
   const attachmentRef = useRef(attachment);
   const stoppedRef = useRef(false);
 
-  // --- Cargar chats desde LocalStorage al iniciar ---
+  // cargar chats desde el local storage
   useEffect(() => {
     const savedChats = localStorage.getItem("medbot_local_chats");
     if (savedChats) {
@@ -84,7 +84,7 @@ export default function Tutor() {
     }
   }, []);
 
-  // ── DETECTOR DE CTRL + V OPTIMIZADO PARA SCREENSHOTS DIRECTAS ──
+  // detector de screen shots
   useEffect(() => {
     function handlePaste(e: ClipboardEvent) {
       const items = e.clipboardData?.items;
@@ -106,7 +106,7 @@ export default function Tutor() {
               mediaType: item.type,
             });
 
-            // Forzamos un texto base para evitar errores de undefined
+            
             setInput("Analiza esta captura de pantalla médica");
           };
           reader.readAsDataURL(file);
@@ -162,14 +162,14 @@ export default function Tutor() {
     }
   }
 
-  // --- Enviar Mensaje ---
+  // enviar mensaje
   async function send(textOverride?: string) {
     const textToSend = textOverride || input;
     const currentAttachment = attachmentRef.current;
 
     if ((!textToSend.trim() && !currentAttachment) || loading) return;
 
-    // Salvavidas de texto: previene fallos si la caja de texto queda vacía pero hay un archivo
+    // fallos si la caja de texto queda vacía pero hay un archivo
     let baseText = textToSend.trim();
     if (!baseText && currentAttachment) {
       baseText = currentAttachment.type === "pdf"
@@ -263,7 +263,7 @@ export default function Tutor() {
       );
       saveToLocalStorage(finalChats);
 
-      // Solo habla si el interruptor de voz está encendido
+      // solo habla si el interruptor de voz está encendido
       if (voiceEnabled && (isListening || textOverride)) speak(assistantResponse);
 
     } catch {
@@ -286,7 +286,7 @@ export default function Tutor() {
     }
   }
 
-  // --- Voice Speak ---
+  // Voz
   function speak(text: string) {
     if (!voiceEnabled) return;
 
@@ -311,7 +311,7 @@ export default function Tutor() {
     window.speechSynthesis.speak(utterance);
   }
 
-  // --- Control de dictado por voz de usuario ---
+  // control de voz para el usuario
   function toggleVoice() {
     if (isListening) {
       stoppedRef.current = true;
@@ -377,15 +377,15 @@ export default function Tutor() {
     startRecognition();
   }
 
-  // --- Silenciar / Activar audio del bot ---
+  // alternar silencio al audio del bot
   function toggleBotVoiceOutput() {
     if (voiceEnabled) {
-      window.speechSynthesis.cancel(); // Detiene el habla actual inmediatamente si se desactiva
+      window.speechSynthesis.cancel(); // detiene el habla actual inmediatamente si se desactiva
     }
     setVoiceEnabled(!voiceEnabled);
   }
 
-  // --- Subida manual de archivos ---
+  // subida de archivos manual 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -463,7 +463,7 @@ export default function Tutor() {
   return (
     <div className="flex h-screen w-full gap-0 overflow-hidden text-primary">
 
-      {/* ── NAVBAR LATERAL (SIDEBAR) ── */}
+      {/* navbar lateral */}
       <div className="w-64 h-full bg-black/30 border-r border-white/10 flex flex-col justify-between backdrop-blur-md shrink-0">
         <div className="flex flex-col flex-1 overflow-hidden p-3 gap-3">
           <button
@@ -510,7 +510,7 @@ export default function Tutor() {
         </div>
       </div>
 
-      {/* ── CONTENIDO PRINCIPAL (CHAT AREA) ── */}
+      {/*  contenido del area del chat principal */}
       <div className="flex-1 flex flex-col h-full bg-transparent p-4 md:p-6 overflow-hidden">
         {error && (
           <div className="mb-3 flex animate-slide-up items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-2.5 text-xs text-yellow-400">
@@ -519,12 +519,12 @@ export default function Tutor() {
           </div>
         )}
 
-        {/* Ventana de mensajes */}
+        {/* ventana de mensajes */}
         <div className="flex-1 overflow-y-auto flex flex-col gap-4 pr-2 pb-4">
           {messages.length === 0 && !loading && (
             <div className="flex flex-col items-center justify-center h-full gap-4 opacity-50">
               <Bot size={48} strokeWidth={1.2} />
-              <p className="text-center text-sm text-secondary">Pregúntale a MedBot lo que necesites</p>
+              <p className="text-center text-sm text-secondary">Pregúntale a MANOLIA lo que necesites</p>
               <p className="mx-auto max-w-xs text-center text-xs text-secondary">
                 Tu historial de consultas se guardará automáticamente en el panel izquierdo.
               </p>
@@ -570,7 +570,7 @@ export default function Tutor() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Archivos Adjuntos actuales */}
+        {/* archivos adjuntos actuales */}
         {attachment && (
           <div className="mb-2 flex animate-slide-up items-center gap-2 rounded-lg border border-purple-500/25 bg-purple-600/15 px-3.5 py-2 text-xs text-purple-300 max-w-xl">
             {attachment.type === "pdf" ? <FileUp size={15} /> : <ImageIcon size={15} />}
@@ -584,7 +584,7 @@ export default function Tutor() {
           </div>
         )}
 
-        {/* Input Bar */}
+        {/* input Bar */}
         <div className="flex gap-2 pt-4 border-t border-white/10 items-center">
           <input ref={fileInputRef} type="file" accept=".pdf, image/*" onChange={handleFileUpload} className="hidden" />
 
@@ -607,7 +607,7 @@ export default function Tutor() {
             {isListening ? <MicOff size={20} /> : <Mic size={20} />}
           </button>
 
-          {/* Botón de control de voz del Bot */}
+          {/* botón de control de voz del Bot */}
           <button
             onClick={toggleBotVoiceOutput}
             title={voiceEnabled ? "Silenciar respuestas del bot" : "Escuchar respuestas del bot"}

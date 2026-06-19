@@ -96,7 +96,7 @@ export default function Flashcards() {
           data.error || "Error generando flashcards"
         );
       }
-      // Limpiar respuesta por si trae backticks o texto extra
+      // limpiar respuesta por si trae backticks o texto extra
       const clean = data.reply
         .replace(/```json/g, "")
         .replace(/```/g, "")
@@ -150,7 +150,7 @@ export default function Flashcards() {
         </button>
       </div>
 
-      {/* Topics rápidos */}
+      {/* topics rapidos */}
       {!isGenerated && !loading && (
         <div className="flex flex-wrap justify-center gap-2">
           {SAMPLE_TOPICS.map((t) => (
@@ -165,7 +165,7 @@ export default function Flashcards() {
         </div>
       )}
 
-      {/* Error */}
+      {/* error */}
       {error && (
         <div className="flex w-full max-w-md items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-2.5 text-xs text-yellow-400">
           <AlertTriangle size={15} className="flex-shrink-0" />
@@ -173,7 +173,7 @@ export default function Flashcards() {
         </div>
       )}
 
-      {/* Contador */}
+      {/* contador */}
       {!loading && (
         <div className="flex items-center gap-3">
           <p className="text-sm font-medium text-secondary">
@@ -187,7 +187,7 @@ export default function Flashcards() {
         </div>
       )}
 
-      {/* Loading skeleton */}
+      {/* esqueleto de carga */}
       {loading && (
         <div className="h-72 w-full max-w-md animate-pulse rounded-2xl border border-purple-500/25 bg-white/5 p-8 flex flex-col items-center justify-center gap-4">
           <div className="h-3 w-24 rounded-full bg-white/10" />
@@ -213,13 +213,13 @@ export default function Flashcards() {
         >
           <div className={`relative h-full w-full transition-transform duration-500 ease-out [transform-style:preserve-3d] ${flipped ? "[transform:rotateY(180deg)]" : ""
             }`}>
-            {/* Frente */}
+            {/* frente */}
             <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl border border-purple-500/25 bg-gradient-to-br from-purple-600/25 to-fuchsia-500/10 p-8 text-center shadow-lg shadow-purple-900/20 backdrop-blur-sm [backface-visibility:hidden]">
               <p className="mb-5 text-xs font-semibold uppercase tracking-widest text-purple-300">Pregunta</p>
               <p className="text-lg leading-relaxed text-primary">{card.question}</p>
               <p className="mt-6 text-xs text-secondary">Toca para ver la respuesta</p>
             </div>
-            {/* Reverso */}
+            {/* reverso */}
             <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl border border-fuchsia-500/30 bg-gradient-to-br from-fuchsia-600/25 to-purple-500/15 p-8 text-center shadow-lg shadow-purple-900/20 backdrop-blur-sm [backface-visibility:hidden] [transform:rotateY(180deg)]">
               <p className="mb-5 text-xs font-semibold uppercase tracking-widest text-fuchsia-300">Respuesta</p>
               <p className="text-base leading-relaxed text-primary">{card.answer}</p>
@@ -228,7 +228,7 @@ export default function Flashcards() {
         </div>
       )}
 
-      {/* Controles */}
+      {/* controles */}
       {!loading && (
         <div className="flex items-center gap-3">
           <button type="button" onClick={prev} title="Anterior" className={controlBtn}>

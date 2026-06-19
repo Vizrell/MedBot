@@ -37,12 +37,12 @@ export default function Quiz() {
 
             const data = await res.json();
 
-            // Validar si la respuesta del servidor fue incorrecta
+            // validadion de respuesta en servidor incorrecta
             if (!res.ok) {
                 throw new Error(data.error || `Error del servidor (Status ${res.status})`);
             }
 
-            // Validar de forma segura que exista 'reply' antes de usar .replace()
+            // validadicon de forma segura si existe 'reply' antes de usar .replace()
             if (!data || typeof data.reply !== "string") {
                 throw new Error("La IA no devolvió el formato de texto esperado.");
             }
@@ -83,7 +83,7 @@ export default function Quiz() {
 
     return (
         <div className="flex h-full flex-col items-center gap-6 py-4 max-w-md mx-auto w-full">
-            {/* Selector de Tema */}
+            {/* selector de tema */}
             <div className="flex w-full gap-2">
                 <input
                     value={topic}
@@ -105,7 +105,7 @@ export default function Quiz() {
                 </button>
             </div>
 
-            {/* Manejo visual de Errores integrados */}
+            {/* manejo visual de errores integrados */}
             {error && (
                 <div className="flex w-full max-w-md items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-2.5 text-xs text-yellow-400">
                     <AlertTriangle size={15} className="flex-shrink-0" />
@@ -119,7 +119,7 @@ export default function Quiz() {
                 </p>
             )}
 
-            {/* Pantalla de Resultados Finales */}
+            {/* pantalla de resultados finales */}
             {quizOver && (
                 <div className="w-full text-center p-8 border border-purple-500/25 bg-gradient-to-br from-purple-600/10 to-fuchsia-500/5 rounded-2xl flex flex-col items-center gap-4 shadow-lg">
                     <h3 className="text-xl font-bold text-primary">¡Quiz Terminado!</h3>
@@ -138,7 +138,7 @@ export default function Quiz() {
                 </div>
             )}
 
-            {/* Cuerpo del Quiz */}
+            {/* cuerpo del quiz */}
             {questions.length > 0 && !quizOver && !loading && (
                 <div className="w-full flex flex-col gap-4">
                     <div className="flex justify-between items-center text-xs text-secondary px-1">
@@ -146,12 +146,12 @@ export default function Quiz() {
                         <span className="font-semibold text-purple-400">Puntuación: {score}</span>
                     </div>
 
-                    {/* Pregunta */}
+                    {/* pregunta */}
                     <div className="p-6 rounded-2xl border border-purple-500/25 bg-gradient-to-br from-purple-600/10 to-fuchsia-500/5 min-h-[100px] flex items-center justify-center text-center shadow-md">
                         <p className="text-base font-medium text-primary">{questions[index].question}</p>
                     </div>
 
-                    {/* Opciones */}
+                    {/* opciones */}
                     <div className="flex flex-col gap-2.5 w-full">
                         {questions[index].options.map((option, i) => {
                             let btnStyle = "border-white/10 bg-white/5 hover:bg-white/10 text-primary";

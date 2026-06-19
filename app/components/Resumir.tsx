@@ -24,13 +24,13 @@ export default function Resumir() {
   const [attachment, setAttachment] = useState<{
     type: "pdf" | "image";
     name: string;
-    content: string; // Guarda el texto completo extraído del PDF o base64 de imagen
+    content: string; 
     mediaType?: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── DETECTOR DE CAPTURAS DE PANTALLA EN PORTAPAPELES (Ctrl + V) ──
+  // detector de capturas de pantalla (ctrl + v)
   useEffect(() => {
     function handlePaste(e: ClipboardEvent) {
       const items = e.clipboardData?.items;
@@ -52,11 +52,10 @@ export default function Resumir() {
               mediaType: item.type,
             });
 
-            // Asignamos un texto descriptivo claro para guiar a Claude
             setTopic("Analiza y resume esta captura de pantalla médica");
           };
           reader.readAsDataURL(file);
-          e.preventDefault(); // Evita interferencias con inputs de texto nativos
+          e.preventDefault(); 
           break;
         }
       }
@@ -66,13 +65,13 @@ export default function Resumir() {
     return () => window.removeEventListener("paste", handlePaste);
   }, []);
 
-  // ── FUNCIÓN CON CARGA DINÁMICA DE PDF (CORRECCIÓN DE SSR) ──
+  // funcion de carga dinamica
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setError(null);
 
-    // Validación de tamaño límite (20 MB)
+    // validacion de tamaño del archivo
     if (file.size > 20 * 1024 * 1024) {
       setError("El archivo supera el límite permitido de 20 MB.");
       return;
@@ -84,17 +83,17 @@ export default function Resumir() {
       try {
         const arrayBuffer = await file.arrayBuffer();
 
-        // 🚀 IMPORTACIÓN EN TIEMPO DE EJECUCIÓN (Previene el error 'DOMMatrix is not defined')
+        // importacion en tiempo de ejecucion
         const pdfjsLib = await import("pdfjs-dist");
         pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
-        // Cargamos el PDF seguro en la memoria del cliente
+        // carda del pdf
         const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
         const pdf = await loadingTask.promise;
 
         let fullText = "";
 
-        // Iteramos todas las páginas para extraer el texto de tus apuntes
+        
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);
           const textContent = await page.getTextContent();
@@ -111,7 +110,7 @@ export default function Resumir() {
           return;
         }
 
-        // Almacenamos el texto completo nativo sin recortes drásticos
+        // almacenamos al texto completo nativo sin recortes 
         setAttachment({
           type: "pdf",
           name: file.name,
@@ -169,7 +168,7 @@ export default function Resumir() {
     }
 
     try {
-      // Salvavidas de texto: asegura que siempre haya un prompt por defecto si el usuario borró la caja
+      // asegura que siempre haya un prompt por defecto si el usuario borró la caja
       let basePromptText = currentTopic || (attachment?.type === "pdf" ? `Resumen del documento médico` : `Analiza detalladamente esta imagen médica...`);
       let promptContent = `Genera un resumen estructurado sobre: "${basePromptText}". Usa markdown con títulos (##), subtítulos (###) y viñetas.`;
       let messagesPayload: any[] = [];
@@ -240,7 +239,7 @@ ${attachment.content}
           setSummary(`## Resumen de: ${attachment.name} (Modo de prueba)\n\nTexto procesado exitosamente en el navegador (${attachment.content.length} caracteres analizados).\n\n> ⚠️ **Nota:** Modo de prueba activado. Configura tu API Key real en producción para ver el análisis de la IA.`);
           setError("Sin créditos disponibles — usando modo de prueba.");
         } else {
-          setSummary(`> ⚠️ **Modo de prueba** — La API no está disponible.`);
+          setSummary(`>  **Modo de prueba** — La API no está disponible.`);
         }
       } else {
         setSummary(data.reply);
@@ -260,7 +259,7 @@ ${attachment.content}
 
   return (
     <div className="flex flex-col h-full gap-5">
-      {/* Banner de Errores */}
+      {/* banner de errores */}
       {error && (
         <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-yellow-400 text-xs">
           <AlertTriangle size={16} className="flex-shrink-0" />
@@ -268,7 +267,7 @@ ${attachment.content}
         </div>
       )}
 
-      {/* Banner de Archivo Adjunto */}
+      {/* banner de archivo adjunto */}
       {attachment && (
         <div className="flex items-center gap-2 rounded-lg border border-purple-500/25 bg-purple-600/15 px-3.5 py-2 text-xs text-purple-300">
           <FileUp size={15} />
@@ -291,7 +290,7 @@ ${attachment.content}
         </div>
       )}
 
-      {/* Controles de Entrada */}
+      {/* controles de entrada */}
       <div className="flex gap-2.5 items-center">
         <input
           ref={fileInputRef}
@@ -331,7 +330,7 @@ ${attachment.content}
         </button>
       </div>
 
-      {/* Estado de Carga */}
+      {/* estado de carga */}
       {loading && (
         <div className="flex flex-1 flex-col gap-3 rounded-xl border border-border bg-white/5 p-6 animate-pulse">
           <div className="h-3.5 rounded-full bg-white/10 w-full" />
@@ -340,7 +339,7 @@ ${attachment.content}
         </div>
       )}
 
-      {/* Vista de Resultados */}
+      {/* vista de resultados */}
       {summary && !loading && (
         <div className="relative flex-1 overflow-y-auto rounded-xl border border-border bg-white/5 p-7">
           <button

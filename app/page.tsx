@@ -4,12 +4,12 @@ import { Stethoscope, BookOpen, Sparkles, Activity, HelpCircle } from "lucide-re
 import Tutor from "./components/Tutor";
 import Flashcards from "./components/Flashcards";
 import Resumir from "./components/Resumir";
-import Quiz from "./components/Quiz"; // Importamos tu nuevo componente
+import Quiz from "./components/Quiz"; 
 
 const TABS = [
   { id: "tutor", label: "Tutor", icon: Stethoscope },
   { id: "flashcards", label: "Flashcards", icon: BookOpen },
-  { id: "quiz", label: "Quiz", icon: HelpCircle }, // Agregado a la barra de navegación
+  { id: "quiz", label: "Quiz", icon: HelpCircle }, 
   { id: "resumir", label: "Resumir", icon: Sparkles },
 ] as const;
 
@@ -19,10 +19,9 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<TabId>("tutor");
 
   return (
-    // ELIMINADO max-w-2xl: Ahora ocupa el 100% del ancho (w-full)
     <div className="flex flex-col h-screen w-full bg-[#0d0714] overflow-hidden">
 
-      {/* ── Header adaptado a pantallas anchas y móviles ── */}
+      {/* ── header adaptado a pantallas como celulares y tablets ── */}
       <header className="flex items-center justify-between py-4 px-4 md:px-6 border-b border-white/10 shrink-0">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 md:h-11 md:w-11 items-center justify-center rounded-lg bg-gradient-to-br from-purple-600 to-fuchsia-500 shadow-lg shadow-purple-500/30">
@@ -30,16 +29,16 @@ export default function Home() {
           </div>
           <div>
             <h1 className="bg-gradient-to-r from-purple-300 to-fuchsia-400 bg-clip-text text-xl md:text-2xl font-bold text-transparent">
-              ManolitoIAPRO
+              MANOLIA
             </h1>
             <p className="text-[10px] md:text-xs text-secondary truncate max-w-[240px] sm:max-w-none">
-              Te voy a carrear eso rico culo que te cargas preciosa
+              🧑🏿‍🦽‍➡️🧑🏿‍🦽‍➡️🧑🏿‍🦽‍➡️🧑🏿‍🦽‍➡️🧑🏿‍🦽‍➡️🧑🏿‍🦽‍➡️
             </p>
           </div>
         </div>
       </header>
 
-      {/* ── Tabs Responsivas y centradas con un max-w estético para que no se estiren al infinito ── */}
+      {/* tab responsive para que no se estire infinitamente */}
       <div className="px-4 md:px-6 py-3 border-b border-white/5 shrink-0">
         <nav className="flex gap-1.5 max-w-xl mx-auto w-full">
           {TABS.map((tab) => {
@@ -62,7 +61,7 @@ export default function Home() {
         </nav>
       </div>
 
-      {/* ── Contenido Principal expandido al 100% con scroll vertical independiente si el quiz es largo ── */}
+      {/* contenido principal expandido al 100% con scroll vertical independiente si el quiz es largo ── */}
       <main className="flex-1 overflow-y-auto flex flex-col w-full p-4">
         {activeTab === "tutor" && <Tutor />}
         {activeTab === "flashcards" && <Flashcards />}
