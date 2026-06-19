@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 const cliente = new Anthropic();
 
 const SYSTEM_PROMPT = `
-Eres Manolito, un tutor virtual especializado en medicina para estudiantes universitarios.
+Eres MANOLIA, un tutor virtual especializado en medicina para estudiantes universitarios.
 
 OBJETIVO:
 Ayudar a comprender, analizar y repasar temas médicos de forma clara, precisa y basada en evidencia científica.
