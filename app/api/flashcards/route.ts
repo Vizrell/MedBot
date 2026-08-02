@@ -9,7 +9,7 @@ export async function POST(req: Request) {
 
         const response = await cliente.messages.create({
             model: "claude-haiku-4-5-20251001",
-            max_tokens: 2048, // Removido response_format que causaba el error
+            max_tokens: 2048,
 
             system: `
             Eres MedBot Flashcards. Generas tarjetas médicas de nivel universitario.
