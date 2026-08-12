@@ -97,13 +97,13 @@ export async function POST(requ: Request) {
     }
 
     // Sanitizar y validar los bloques de mensajes para la API de Anthropic
-    const sanitizedMessages: any[] = [];
+    const sanitizedMessages: Anthropic.MessageParam[] = [];
 
     for (const msg of messages) {
-      const role = msg.role === "assistant" ? "assistant" : "user";
+      const role: "user" | "assistant" = msg.role === "assistant" ? "assistant" : "user";
 
       if (Array.isArray(msg.content)) {
-        const sanitizedContent = msg.content.map((block: any) => {
+        const contentBlocks: any[] = msg.content.map((block: any) => {
           if (block.type === "image" && block.source?.type === "base64") {
             const rawMediaType = block.source.media_type;
             const validMediaType = VALID_IMAGE_MEDIA_TYPES.has(rawMediaType)
@@ -122,7 +122,7 @@ export async function POST(requ: Request) {
           return block;
         });
 
-        sanitizedMessages.push({ role, content: sanitizedContent });
+        sanitizedMessages.push({ role, content: contentBlocks });
       } else {
         sanitizedMessages.push({
           role,
@@ -132,7 +132,7 @@ export async function POST(requ: Request) {
     }
 
     // Asegurar que los roles alternen correctamente (user -> assistant -> user)
-    const normalizedHistory: any[] = [];
+    const normalizedHistory: Anthropic.MessageParam[] = [];
     for (const msg of sanitizedMessages) {
       if (
         normalizedHistory.length > 0 &&
@@ -143,12 +143,12 @@ export async function POST(requ: Request) {
           prev.content = `${prev.content}\n\n${msg.content}`;
         } else {
           const prevArray = Array.isArray(prev.content)
-            ? prev.content
-            : [{ type: "text", text: prev.content }];
+            ? (prev.content as any[])
+            : [{ type: "text", text: prev.content as string }];
           const msgArray = Array.isArray(msg.content)
-            ? msg.content
-            : [{ type: "text", text: msg.content }];
-          prev.content = [...prevArray, ...msgArray];
+            ? (msg.content as any[])
+            : [{ type: "text", text: msg.content as string }];
+          prev.content = [...prevArray, ...msgArray] as any;
         }
       } else {
         normalizedHistory.push(msg);

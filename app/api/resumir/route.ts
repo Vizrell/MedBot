@@ -69,29 +69,31 @@ export async function POST(requ: Request) {
       );
     }
 
-    const sanitizedMessages = messages.map((msg: any) => {
-      const role = msg.role === "assistant" ? "assistant" : "user";
+    const sanitizedMessages: Anthropic.MessageParam[] = messages.map((msg: any) => {
+      const role: "user" | "assistant" = msg.role === "assistant" ? "assistant" : "user";
       if (Array.isArray(msg.content)) {
+        const contentBlocks: any[] = msg.content.map((block: any) => {
+          if (block.type === "image" && block.source?.type === "base64") {
+            const rawMediaType = block.source.media_type;
+            const validMediaType = VALID_IMAGE_MEDIA_TYPES.has(rawMediaType)
+              ? rawMediaType
+              : normalizeMediaType(rawMediaType);
+
+            return {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: validMediaType,
+                data: block.source.data,
+              },
+            };
+          }
+          return block;
+        });
+
         return {
           role,
-          content: msg.content.map((block: any) => {
-            if (block.type === "image" && block.source?.type === "base64") {
-              const rawMediaType = block.source.media_type;
-              const validMediaType = VALID_IMAGE_MEDIA_TYPES.has(rawMediaType)
-                ? rawMediaType
-                : normalizeMediaType(rawMediaType);
-
-              return {
-                type: "image",
-                source: {
-                  type: "base64",
-                  media_type: validMediaType,
-                  data: block.source.data,
-                },
-              };
-            }
-            return block;
-          }),
+          content: contentBlocks,
         };
       }
       return {
