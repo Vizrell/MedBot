@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
-import { RotateCcw, ChevronLeft, ChevronRight, Shuffle, Sparkles, AlertTriangle } from "lucide-react";
+import { RotateCcw, ChevronLeft, ChevronRight, Shuffle, Sparkles, AlertTriangle, FileDown } from "lucide-react";
+import { downloadAsWordDocument } from "../lib/wordExport";
 
 interface Card {
   question: string;
@@ -47,6 +48,20 @@ export default function Flashcards() {
     setCards(DEFAULT_CARDS);
     setIndex(0); setFlipped(false);
     setIsGenerated(false); setTopic("");
+  }
+
+  function handleDownloadWord() {
+    let markdown = `# Fichas de Estudio Médico: ${topic || "Conceptos Fundamentales"}\n\n`;
+    markdownContentSummary:
+    markdown += `**Total de fichas:** ${cards.length}\n\n---\n\n`;
+    markdown += `| # | Pregunta / Concepto Clave | Respuesta / Definición Médica |\n|---|---|---|\n`;
+
+    cards.forEach((c, idx) => {
+      markdown += `| ${idx + 1} | **${c.question.replace(/\|/g, "/")}** | ${c.answer.replace(/\|/g, "/")} |\n`;
+    });
+
+    const cleanTopic = (topic || "Flashcards_Medicas").replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_ -]/g, "").slice(0, 30);
+    downloadAsWordDocument(markdown, `Flashcards_${cleanTopic}.doc`, `Fichas Médicas: ${topic || "Medicina"}`);
   }
 
   async function generate() {
@@ -104,23 +119,15 @@ export default function Flashcards() {
 
       const parsed: Card[] = JSON.parse(clean);
 
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        throw new Error("Formato inválido");
-      }
-
       setCards(parsed);
       setIndex(0);
       setFlipped(false);
       setIsGenerated(true);
-    } catch (err: any) {
-      console.error("ERROR COMPLETO:", err);
-
+    } catch (err: unknown) {
       setError(
-        err?.message ||
-        "No se pudieron generar las tarjetas."
+        err instanceof Error ? err.message : "Error generando flashcards"
       );
-    }
-    finally {
+    } finally {
       setLoading(false);
     }
   }
@@ -128,25 +135,25 @@ export default function Flashcards() {
   return (
     <div className="flex h-full flex-col items-center gap-6 py-4">
 
-      {/* Input para generar */}
+      {/* input de tema */}
       <div className="flex w-full max-w-md gap-2">
         <input
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && generate()}
-          placeholder="Escribe un tema para generar tarjetas..."
-          className="flex-1 rounded-xl border border-border bg-white/5 px-4 py-3 text-sm text-primary outline-none transition-all focus:border-purple-500/50 focus:shadow-lg focus:shadow-purple-500/15"
+          placeholder="Tema médico (ej: Farmacología, EKG, etc)..."
+          className="flex-1 rounded-xl border border-border bg-white/5 px-4 py-3 text-sm text-primary outline-none focus:border-purple-500/50"
         />
         <button
           onClick={generate}
           disabled={loading || !topic.trim()}
-          className={`flex items-center gap-2 rounded-xl border-none px-5 py-3 text-sm font-semibold transition-all ${loading || !topic.trim()
+          className={`flex items-center gap-2 rounded-xl border-none px-5 py-3 text-sm font-semibold transition-all cursor-pointer ${loading || !topic.trim()
             ? "cursor-not-allowed bg-white/10 text-secondary"
-            : "bg-gradient-to-br from-purple-600 to-fuchsia-500 text-white hover:shadow-lg hover:shadow-purple-500/25"
+            : "bg-gradient-to-br from-purple-600 to-fuchsia-500 text-white active:scale-95"
             }`}
         >
           <Sparkles size={16} />
-          {loading ? "Generando..." : "Generar"}
+          {loading ? "Creando..." : "Generar"}
         </button>
       </div>
 
@@ -157,7 +164,7 @@ export default function Flashcards() {
             <button
               key={t}
               onClick={() => setTopic(t)}
-              className="rounded-lg border border-border bg-white/5 px-3 py-1.5 text-xs text-secondary transition-all hover:bg-white/10 hover:text-primary"
+              className="rounded-lg border border-border bg-white/5 px-3 py-1.5 text-xs text-secondary transition-all hover:bg-white/10 hover:text-primary cursor-pointer"
             >
               {t}
             </button>
@@ -173,17 +180,28 @@ export default function Flashcards() {
         </div>
       )}
 
-      {/* contador */}
+      {/* contador y botón de descarga Word */}
       {!loading && (
-        <div className="flex items-center gap-3">
-          <p className="text-sm font-medium text-secondary">
-            {index + 1} / {cards.length}
-          </p>
-          {isGenerated && (
-            <span className="rounded-full border border-purple-500/30 bg-purple-600/15 px-3 py-0.5 text-xs text-purple-300">
-              IA · {topic}
-            </span>
-          )}
+        <div className="flex items-center justify-between w-full max-w-md px-1">
+          <div className="flex items-center gap-3">
+            <p className="text-sm font-medium text-secondary">
+              {index + 1} / {cards.length}
+            </p>
+            {isGenerated && (
+              <span className="rounded-full border border-purple-500/30 bg-purple-600/15 px-3 py-0.5 text-xs text-purple-300">
+                IA · {topic}
+              </span>
+            )}
+          </div>
+
+          <button
+            onClick={handleDownloadWord}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-lg border border-purple-500/30 bg-purple-600/20 hover:bg-purple-600/35 text-purple-200 text-xs font-medium transition-all shadow-sm active:scale-95 cursor-pointer"
+            title="Descargar todas las fichas en formato Word"
+          >
+            <FileDown size={13} className="text-purple-300" />
+            <span>Descargar Word</span>
+          </button>
         </div>
       )}
 

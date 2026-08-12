@@ -1,8 +1,9 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { Sparkles, Copy, Check, FileUp, AlertTriangle, Loader2, X } from "lucide-react";
+import { Sparkles, Copy, Check, FileUp, AlertTriangle, Loader2, X, FileDown } from "lucide-react";
 import MarkdownContent from "./MarkdownContent";
 import { processImage, normalizeMediaType } from "../lib/imageUtils";
+import { downloadAsWordDocument } from "../lib/wordExport";
 
 interface Attachment {
   id: string;
@@ -158,6 +159,11 @@ export default function Resumir() {
 
   function clearAllAttachments() {
     setAttachments([]);
+  }
+
+  function handleDownloadWord() {
+    const cleanTitle = (topic || "Resumen_Medico").replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_ -]/g, "").slice(0, 35);
+    downloadAsWordDocument(summary, `MANOLIA_${cleanTitle}.doc`, topic || "Resumen Médico");
   }
 
   async function generate() {
@@ -379,7 +385,7 @@ Crea una mnemotecnia útil para recordar el tema si aplica.
           disabled={loading || processingMedia || (!topic.trim() && attachments.length === 0)}
           className={`px-6 py-3.5 rounded-xl flex items-center gap-2 text-sm font-semibold transition-all shadow-md ${loading || processingMedia || (!topic.trim() && attachments.length === 0)
             ? "bg-white/10 text-secondary/40 cursor-not-allowed"
-            : "bg-gradient-to-br from-purple-600 to-fuchsia-500 hover:from-purple-500 hover:to-fuchsia-400 text-white active:scale-95"
+            : "bg-gradient-to-br from-purple-600 to-fuchsia-500 hover:from-purple-500 hover:to-fuchsia-400 text-white active:scale-95 cursor-pointer"
             }`}
         >
           {loading || processingMedia ? (
@@ -409,14 +415,29 @@ Crea una mnemotecnia útil para recordar el tema si aplica.
       {/* Vista de resultados */}
       {summary && !loading && (
         <div className="relative flex-1 overflow-y-auto rounded-xl border border-purple-500/20 bg-white/5 p-7">
-          <button
-            onClick={copyToClipboard}
-            className={`absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-white/10 text-secondary transition-all hover:text-white ${copied ? "text-emerald-400 border-emerald-500/30 bg-emerald-500/10" : ""}`}
-            title="Copiar resumen"
-          >
-            {copied ? <Check size={16} /> : <Copy size={16} />}
-          </button>
-          <MarkdownContent variant="summary">{summary}</MarkdownContent>
+          {/* Botones de acción del resumen */}
+          <div className="absolute right-4 top-4 flex items-center gap-2 z-10">
+            <button
+              onClick={handleDownloadWord}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-purple-500/30 bg-purple-600/25 hover:bg-purple-600/40 text-purple-200 text-xs font-medium transition-all shadow-sm hover:scale-[1.02] active:scale-95 cursor-pointer"
+              title="Descargar este resumen en formato Word (.doc)"
+            >
+              <FileDown size={14} className="text-purple-300" />
+              <span>Descargar Word</span>
+            </button>
+
+            <button
+              onClick={copyToClipboard}
+              className={`flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-white/10 text-secondary transition-all hover:text-white cursor-pointer ${copied ? "text-emerald-400 border-emerald-500/30 bg-emerald-500/10" : ""}`}
+              title="Copiar texto del resumen"
+            >
+              {copied ? <Check size={15} /> : <Copy size={15} />}
+            </button>
+          </div>
+
+          <div className="pt-2">
+            <MarkdownContent variant="summary">{summary}</MarkdownContent>
+          </div>
         </div>
       )}
     </div>

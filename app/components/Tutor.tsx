@@ -1,8 +1,28 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, AlertTriangle, Mic, MicOff, FileUp, Image as ImageIcon, MessageSquare, Plus, Trash2, Volume2, VolumeX, Loader2, X } from "lucide-react";
+import {
+  Send,
+  Bot,
+  User,
+  AlertTriangle,
+  Mic,
+  MicOff,
+  FileUp,
+  Image as ImageIcon,
+  MessageSquare,
+  Plus,
+  Trash2,
+  Volume2,
+  VolumeX,
+  Loader2,
+  X,
+  FileDown,
+  Copy,
+  Check,
+} from "lucide-react";
 import MarkdownContent from "./MarkdownContent";
 import { processImage, normalizeMediaType } from "../lib/imageUtils";
+import { downloadAsWordDocument } from "../lib/wordExport";
 
 interface Attachment {
   id: string;
@@ -49,6 +69,7 @@ export default function Tutor() {
   const [processingMedia, setProcessingMedia] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
   // Control de voz del bot
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
@@ -211,6 +232,19 @@ export default function Tutor() {
 
   function clearAllAttachments() {
     setAttachments([]);
+  }
+
+  function copyMessage(text: string, idx: number) {
+    navigator.clipboard.writeText(text);
+    setCopiedIdx(idx);
+    setTimeout(() => setCopiedIdx(null), 2000);
+  }
+
+  function handleDownloadWord(content: string) {
+    const currentChat = chats.find(c => c.id === currentChatId);
+    const title = currentChat?.title || "consulta_medica";
+    const cleanTitle = title.replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_ -]/g, "").slice(0, 35);
+    downloadAsWordDocument(content, `MANOLIA_${cleanTitle}.doc`, title);
   }
 
   // Enviar mensaje al bot
@@ -603,7 +637,7 @@ export default function Tutor() {
         </div>
 
         <div className="p-3 border-t border-white/5 bg-black/10 text-[11px] opacity-40 text-center font-mono">
-          MANOLIA AI • Visión Multimodal Activa
+          MANOLIA AI • Exportación a Word
         </div>
       </div>
 
@@ -627,7 +661,7 @@ export default function Tutor() {
               <div className="text-center">
                 <p className="text-base font-semibold text-purple-200 mb-1">Pregúntale a MANOLIA lo que necesites</p>
                 <p className="max-w-md text-xs text-secondary leading-relaxed">
-                  Puedes escribir dudas, pegar varias capturas con <span className="font-mono bg-white/10 px-1.5 py-0.5 rounded text-purple-300">Ctrl + V</span> o subir múltiples imágenes médicas y PDFs a la vez.
+                  Puedes pedir resúmenes, casos clínicos o análisis de capturas y <strong>descargarlos directamente en formato Word (.doc)</strong> con un solo clic.
                 </p>
               </div>
             </div>
@@ -674,7 +708,30 @@ export default function Tutor() {
                   )}
 
                   {msg.role === "assistant" ? (
-                    <MarkdownContent variant="chat">{msg.content}</MarkdownContent>
+                    <>
+                      <MarkdownContent variant="chat">{msg.content}</MarkdownContent>
+                      
+                      {/* Barra de acciones para respuestas del asistente: Descargar Word y Copiar */}
+                      <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-white/10 text-xs">
+                        <button
+                          onClick={() => handleDownloadWord(msg.content)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600/25 hover:bg-purple-600/40 text-purple-200 border border-purple-500/30 transition-all text-[11px] font-medium shadow-sm hover:scale-[1.02] active:scale-95 cursor-pointer"
+                          title="Descargar este contenido en formato Word (.doc)"
+                        >
+                          <FileDown size={13} className="text-purple-300" />
+                          <span>Descargar en Word (.doc)</span>
+                        </button>
+
+                        <button
+                          onClick={() => copyMessage(msg.content, i)}
+                          className="flex items-center gap-1 text-secondary/70 hover:text-purple-200 text-[11px] transition-colors p-1 rounded hover:bg-white/5 cursor-pointer"
+                          title="Copiar texto de la respuesta"
+                        >
+                          {copiedIdx === i ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                          <span>{copiedIdx === i ? "Copiado" : "Copiar"}</span>
+                        </button>
+                      </div>
+                    </>
                   ) : (
                     <div className="whitespace-pre-wrap">{msg.content}</div>
                   )}
@@ -699,7 +756,7 @@ export default function Tutor() {
                     <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:0s]" />
                     <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:150ms]" />
                     <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:300ms]" />
-                    <span className="ml-1 text-[11px] opacity-70">MANOLIA está analizando tus capturas...</span>
+                    <span className="ml-1 text-[11px] opacity-70">MANOLIA está redactando la respuesta...</span>
                   </>
                 )}
               </div>
@@ -807,7 +864,7 @@ export default function Tutor() {
                 ? "Escuchando tu voz..."
                 : attachments.length > 0
                   ? `Escribe una duda sobre las ${attachments.length} capturas o presiona Enviar...`
-                  : "Pregúntale a MANOLIA (o pega varias capturas con Ctrl + V)..."
+                  : "Pregúntale a MANOLIA o pide crear un archivo Word..."
             }
             disabled={loading || processingMedia}
             className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-5 py-3.5 text-sm text-primary placeholder:text-secondary/60 outline-none transition-all focus:border-purple-500/50 focus:bg-white/[0.07]"
@@ -818,7 +875,7 @@ export default function Tutor() {
             disabled={loading || processingMedia || (!input.trim() && attachments.length === 0)}
             className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all shadow-md ${loading || processingMedia || (!input.trim() && attachments.length === 0)
               ? "bg-white/5 text-secondary/40 border border-white/5 cursor-not-allowed"
-              : "bg-gradient-to-br from-purple-600 to-fuchsia-500 hover:from-purple-500 hover:to-fuchsia-400 text-white shadow-purple-500/25 active:scale-95"
+              : "bg-gradient-to-br from-purple-600 to-fuchsia-500 hover:from-purple-500 hover:to-fuchsia-400 text-white shadow-purple-500/25 active:scale-95 cursor-pointer"
               }`}
           >
             <Send size={20} />
