@@ -198,13 +198,15 @@ export default function Resumir() {
 
       const promptTemplate = `
 ${pdfTextContent ? `Contenido de los documentos adjuntos:\n${pdfTextContent}\n\n---\n` : ""}
-Solicitud del usuario:
+Solicitud o instrucción del usuario:
 "${basePromptText}"
 
-Genera una respuesta estructurada utilizando exactamente este formato en Markdown:
+Instrucción de formato:
+- Si el usuario solicitó una longitud o formato específico (ej: "en 5 líneas", "en un solo párrafo", "resumen breve", "máximo N palabras", "solo puntos clave"), CUMPLE ESTRICTAMENTE con esa indicación.
+- Si el usuario NO especificó una restricción de longitud o formato, organiza la respuesta con esta estructura estándar en Markdown:
 
 ## Resumen General
-Explicación clara y organizada del contenido o de los hallazgos en las capturas.
+Explicación clara y organizada del contenido o de los hallazgos en las capturas/documentos.
 
 ## Conceptos Clave
 - Punto importante 1
