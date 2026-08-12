@@ -1,7 +1,8 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, AlertTriangle, Mic, MicOff, FileUp, Image as ImageIcon, MessageSquare, Plus, Trash2, Volume2, VolumeX } from "lucide-react";
+import { Send, Bot, User, AlertTriangle, Mic, MicOff, FileUp, Image as ImageIcon, MessageSquare, Plus, Trash2, Volume2, VolumeX, Loader2 } from "lucide-react";
 import MarkdownContent from "./MarkdownContent";
+import { processImage, normalizeMediaType } from "../lib/imageUtils";
 
 interface Message {
   role: "user" | "assistant";
@@ -17,24 +18,10 @@ interface ChatSession {
   createdAt: string;
 }
 
-const MOCK_REPLIES = [
-  "¡Buena pregunta! La **mitocondria** es conocida como la *central energética* de la célula porque produce la mayor parte del ATP mediante fosforilación oxidativa.",
-  "El sistema nervioso se divide en dos partes principales:\n\n- **SNC** (Sistema Nervioso Central): cerebro y médula espinal\n- **SNP** (Sistema Periférico): nervios craneales y espinales",
-  "La **hemoglobina** es una proteína tetramérica presente en los glóbulos rojos que transporta oxígeno desde los pulmones hacia los tejidos del cuerpo.",
-  "Los cuatro tipos principales de tejido en el cuerpo humano son:\n\n1. **Epitelial** — recubrimiento y protección\n2. **Conectivo** — soporte y unión\n3. **Muscular** — movimiento\n4. **Nervioso** — comunicación y control",
-  "La presión arterial normal en un adulto se considera alrededor de **120/80 mmHg**. Valores superiores a 140/90 mmHg se clasifican como *hipertensión*.",
-];
-
-const MOCK_IMAGE_REPLIES = [
-  "He analizado la imagen médica que has subido. Parece ser un corte histológico o una radiografía de estudio. En un entorno real con la clave API activa, podré describirte con precisión anatómica cada hallazgo y patología visible en tu captura.",
-  "Captura recibida. Analizando la imagen con criterios de diagnóstico clínico... (Modo de prueba: activa tus créditos de Anthropic para ver la clasificación anatómica completa).",
-  "Imagen médica cargada. En la versión de producción, analizaré densidades, tejidos y contrastes para darte un reporte detallado.",
-];
-
 function cleanForSpeech(text: string): string {
   return text
     .replace(/#{1,6}\s/g, "")
-    .replace(/\*\*(.*?)\*\"/g, "$1")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/[-•]\s/g, "")
     .replace(/\n+/g, ". ")
@@ -42,7 +29,7 @@ function cleanForSpeech(text: string): string {
 }
 
 export default function Tutor() {
-  // states app
+  // Estados de la app
   const [chats, setChats] = useState<ChatSession[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -50,10 +37,11 @@ export default function Tutor() {
 
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [processingMedia, setProcessingMedia] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
 
-  // control de voz del bot
+  // Control de voz del bot
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
 
   const [attachment, setAttachment] = useState<{
@@ -69,24 +57,60 @@ export default function Tutor() {
   const attachmentRef = useRef(attachment);
   const stoppedRef = useRef(false);
 
-  // cargar chats desde el local storage
+  // Cargar chats desde localStorage de forma segura
   useEffect(() => {
-    const savedChats = localStorage.getItem("medbot_local_chats");
-    if (savedChats) {
-      const parsedChats = JSON.parse(savedChats);
-      setChats(parsedChats);
-      if (parsedChats.length > 0) {
-        const lastChat = parsedChats[0];
-        setCurrentChatId(lastChat.id);
-        setMessages(lastChat.messages);
-        setApiHistory(lastChat.apiHistory);
+    try {
+      const savedChats = localStorage.getItem("medbot_local_chats");
+      if (savedChats) {
+        const parsedChats = JSON.parse(savedChats);
+        setChats(parsedChats);
+        if (parsedChats.length > 0) {
+          const lastChat = parsedChats[0];
+          setCurrentChatId(lastChat.id);
+          setMessages(lastChat.messages || []);
+          setApiHistory(lastChat.apiHistory || []);
+        }
       }
+    } catch (e) {
+      console.warn("Error al cargar historial previo:", e);
     }
   }, []);
 
-  // detector de screen shots
+  const saveToLocalStorage = (updatedChats: ChatSession[]) => {
+    setChats(updatedChats);
+    try {
+      // Sanitizar antes de guardar para no exceder los 5MB de quota del navegador
+      const sanitizedChats = updatedChats.map(c => ({
+        ...c,
+        messages: (c.messages || []).map(m => ({
+          ...m,
+          // Mantener vista previa de imagen sólo si es ligera
+          image: m.image && m.image.length > 400000 ? undefined : m.image,
+        })),
+        apiHistory: (c.apiHistory || []).map(entry => {
+          if (Array.isArray(entry.content)) {
+            return {
+              ...entry,
+              content: entry.content.map((block: any) => {
+                if (block.type === "image") {
+                  return { type: "text", text: "[Captura/Imagen médica adjunta procesada]" };
+                }
+                return block;
+              }),
+            };
+          }
+          return entry;
+        }),
+      }));
+      localStorage.setItem("medbot_local_chats", JSON.stringify(sanitizedChats));
+    } catch (e) {
+      console.warn("No se pudo persistir en localStorage (límite de cuota):", e);
+    }
+  };
+
+  // Detector de capturas de pantalla pegadas (Ctrl + V / Portapapeles)
   useEffect(() => {
-    function handlePaste(e: ClipboardEvent) {
+    async function handlePaste(e: ClipboardEvent) {
       const items = e.clipboardData?.items;
       if (!items) return;
 
@@ -95,22 +119,25 @@ export default function Tutor() {
           const file = item.getAsFile();
           if (!file) continue;
 
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const base64Result = event.target?.result as string;
+          e.preventDefault();
+          setProcessingMedia(true);
+          setError(null);
 
+          try {
+            const processed = await processImage(file);
             setAttachment({
               type: "image",
-              name: "captura_portapapeles.png",
-              content: base64Result,
-              mediaType: item.type,
+              name: "captura_pantalla.jpg",
+              content: processed.dataUrl,
+              mediaType: processed.mediaType,
             });
-
-            
-            setInput("Analiza esta captura de pantalla médica");
-          };
-          reader.readAsDataURL(file);
-          e.preventDefault();
+            setInput("Analiza esta captura de pantalla médica detalladamente.");
+          } catch (err: any) {
+            console.error("Error al procesar captura:", err);
+            setError("No se pudo procesar la captura de pantalla pegada.");
+          } finally {
+            setProcessingMedia(false);
+          }
           break;
         }
       }
@@ -119,11 +146,6 @@ export default function Tutor() {
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
   }, []);
-
-  const saveToLocalStorage = (updatedChats: ChatSession[]) => {
-    setChats(updatedChats);
-    localStorage.setItem("medbot_local_chats", JSON.stringify(updatedChats));
-  };
 
   useEffect(() => {
     attachmentRef.current = attachment;
@@ -147,8 +169,8 @@ export default function Tutor() {
     const selected = chats.find(c => c.id === chatId);
     if (selected) {
       setCurrentChatId(selected.id);
-      setMessages(selected.messages);
-      setApiHistory(selected.apiHistory);
+      setMessages(selected.messages || []);
+      setApiHistory(selected.apiHistory || []);
     }
   }
 
@@ -162,14 +184,13 @@ export default function Tutor() {
     }
   }
 
-  // enviar mensaje
+  // Enviar mensaje al bot
   async function send(textOverride?: string) {
     const textToSend = textOverride || input;
     const currentAttachment = attachmentRef.current;
 
-    if ((!textToSend.trim() && !currentAttachment) || loading) return;
+    if ((!textToSend.trim() && !currentAttachment) || loading || processingMedia) return;
 
-    // fallos si la caja de texto queda vacía pero hay un archivo
     let baseText = textToSend.trim();
     if (!baseText && currentAttachment) {
       baseText = currentAttachment.type === "pdf"
@@ -182,13 +203,18 @@ export default function Tutor() {
       if (currentAttachment.type === "pdf") {
         apiMessageContent = `[Contenido completo del PDF "${currentAttachment.name}"]: \n${currentAttachment.content}\n\n---\n\nPregunta del usuario: ${baseText}`;
       } else if (currentAttachment.type === "image") {
-        const base64Raw = currentAttachment.content.split(",")[1];
+        const base64Raw = currentAttachment.content.includes(",")
+          ? currentAttachment.content.split(",")[1]
+          : currentAttachment.content;
+
+        const mediaType = normalizeMediaType(currentAttachment.mediaType);
+
         apiMessageContent = [
           {
             type: "image",
             source: {
               type: "base64",
-              media_type: currentAttachment.mediaType || "image/jpeg",
+              media_type: mediaType,
               data: base64Raw,
             },
           },
@@ -203,16 +229,30 @@ export default function Tutor() {
       image: currentAttachment?.type === "image" ? currentAttachment.content : undefined,
     };
 
+    // Optimizar historial para enviar a la API: evitar reenviar imágenes pesadas de turnos anteriores
+    const cleanedApiHistory = apiHistory.slice(-8).map(entry => {
+      if (Array.isArray(entry.content)) {
+        return {
+          ...entry,
+          content: entry.content.map((block: any) => {
+            if (block.type === "image") {
+              return { type: "text", text: "[Imagen médica previa enviada]" };
+            }
+            return block;
+          }),
+        };
+      }
+      return entry;
+    });
+
     const newApiEntry = { role: "user" as const, content: apiMessageContent };
-    const updatedApiHistory = [...apiHistory.slice(-10), newApiEntry];
+    const updatedApiHistory = [...cleanedApiHistory, newApiEntry];
     const updatedMessages = [...messages, userMsg];
 
     setMessages(updatedMessages);
     setInput("");
     setLoading(true);
     setError(null);
-
-    const isImageSent = currentAttachment?.type === "image";
     setAttachment(null);
 
     let chatId = currentChatId;
@@ -223,7 +263,7 @@ export default function Tutor() {
       setCurrentChatId(chatId);
       const newChat: ChatSession = {
         id: chatId,
-        title: baseText.length > 25 ? baseText.substring(0, 25) + "..." : baseText,
+        title: baseText.length > 30 ? baseText.substring(0, 30) + "..." : baseText,
         messages: updatedMessages,
         apiHistory: updatedApiHistory,
         createdAt: new Date().toLocaleDateString(),
@@ -242,15 +282,14 @@ export default function Tutor() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: updatedApiHistory }),
       });
+
       const data = await res.json();
 
-      let assistantResponse = "";
-
       if (!res.ok) {
-        throw new Error(data.error || "Error al consultar");
-      } else {
-        assistantResponse = data.reply;
+        throw new Error(data.error || `Error del servidor (${res.status})`);
       }
+
+      const assistantResponse = data.reply || "No se recibió respuesta del modelo.";
 
       const finalMessages = [...updatedMessages, { role: "assistant" as const, content: assistantResponse }];
       const finalApiHistory = [...updatedApiHistory, { role: "assistant" as const, content: assistantResponse }];
@@ -263,55 +302,58 @@ export default function Tutor() {
       );
       saveToLocalStorage(finalChats);
 
-      // solo habla si el interruptor de voz está encendido
-      if (voiceEnabled && (isListening || textOverride)) speak(assistantResponse);
+      if (voiceEnabled && (isListening || textOverride)) {
+        speak(assistantResponse);
+      }
 
-    } catch {
-      const mock = isImageSent
-        ? MOCK_IMAGE_REPLIES[Math.floor(Math.random() * MOCK_IMAGE_REPLIES.length)]
-        : MOCK_REPLIES[Math.floor(Math.random() * MOCK_REPLIES.length)];
+    } catch (err: any) {
+      console.error("Error en consulta de chat:", err);
+      const errorMsg = err?.message || "Error al conectar con el servidor.";
+      setError(errorMsg);
 
-      const finalMessages = [...updatedMessages, { role: "assistant" as const, content: mock }];
+      const fallbackReply = `⚠️ **Error en la consulta:** ${errorMsg}\n\n*Por favor, verifica tu conexión o credenciales de la API.*`;
+      const finalMessages = [...updatedMessages, { role: "assistant" as const, content: fallbackReply }];
       setMessages(finalMessages);
-      setError("Sin conexión al servidor — usando modo de prueba.");
 
       const finalChats = currentChatsCopy.map(c =>
         c.id === chatId ? { ...c, messages: finalMessages } : c
       );
       saveToLocalStorage(finalChats);
-
-      if (voiceEnabled && (isListening || textOverride)) speak(mock);
     } finally {
       setLoading(false);
     }
   }
 
-  // Voz
+  // Voz (Text-to-Speech)
   function speak(text: string) {
     if (!voiceEnabled) return;
 
-    const cleanedText = cleanForSpeech(text);
-    window.speechSynthesis.cancel();
+    try {
+      const cleanedText = cleanForSpeech(text);
+      window.speechSynthesis.cancel();
 
-    const utterance = new SpeechSynthesisUtterance(cleanedText);
-    utterance.lang = "es-MX";
-    utterance.rate = 0.95;
-    utterance.pitch = 1;
-    utterance.volume = 1;
+      const utterance = new SpeechSynthesisUtterance(cleanedText);
+      utterance.lang = "es-MX";
+      utterance.rate = 0.95;
+      utterance.pitch = 1;
+      utterance.volume = 1;
 
-    const voices = window.speechSynthesis.getVoices();
-    const spanishVoice =
-      voices.find(v => v.name.includes("Microsoft")) ||
-      voices.find(v => v.lang.startsWith("es"));
+      const voices = window.speechSynthesis.getVoices();
+      const spanishVoice =
+        voices.find(v => v.name.includes("Microsoft") && v.lang.startsWith("es")) ||
+        voices.find(v => v.lang.startsWith("es"));
 
-    if (spanishVoice) {
-      utterance.voice = spanishVoice;
+      if (spanishVoice) {
+        utterance.voice = spanishVoice;
+      }
+
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn("Error en síntesis de voz:", e);
     }
-
-    window.speechSynthesis.speak(utterance);
   }
 
-  // control de voz para el usuario
+  // Control de voz para el usuario (SpeechRecognition)
   function toggleVoice() {
     if (isListening) {
       stoppedRef.current = true;
@@ -377,26 +419,24 @@ export default function Tutor() {
     startRecognition();
   }
 
-  // alternar silencio al audio del bot
   function toggleBotVoiceOutput() {
     if (voiceEnabled) {
-      window.speechSynthesis.cancel(); // detiene el habla actual inmediatamente si se desactiva
+      window.speechSynthesis.cancel();
     }
     setVoiceEnabled(!voiceEnabled);
   }
 
-  // subida de archivos manual 
+  // Subida manual de archivos
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setError(null);
 
-    if (file.size > 20 * 1024 * 1024) {
-      setError("El archivo supera el límite permitido de 20 MB.");
-      return;
-    }
-
     if (file.type === "application/pdf") {
+      if (file.size > 20 * 1024 * 1024) {
+        setError("El archivo PDF supera el límite permitido de 20 MB.");
+        return;
+      }
       setLoading(true);
       setError(null);
       try {
@@ -427,34 +467,35 @@ export default function Tutor() {
         setAttachment({
           type: "pdf",
           name: file.name,
-          content: fullText.trim()
+          content: fullText.trim(),
         });
 
         setInput(`Analiza y resume el contenido de este PDF: "${file.name}"`);
       } catch (err) {
         console.error(err);
-        setError("Error al leer el archivo PDF con el cargador dinámico.");
+        setError("Error al leer el archivo PDF.");
       } finally {
         setLoading(false);
       }
     } else if (file.type.startsWith("image/")) {
-      if (file.size > 4 * 1024 * 1024) {
-        setError("Para capturas o imágenes médicas, se recomienda un peso menor a 4 MB por restricciones de Vercel.");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = (event) => {
+      setProcessingMedia(true);
+      try {
+        const processed = await processImage(file);
         setAttachment({
           type: "image",
           name: file.name,
-          content: event.target?.result as string,
-          mediaType: file.type
+          content: processed.dataUrl,
+          mediaType: processed.mediaType,
         });
-        setInput(`Analiza esta imagen: "${file.name}"`);
-      };
-      reader.readAsDataURL(file);
+        setInput(`Analiza esta imagen médica: "${file.name}"`);
+      } catch (err) {
+        console.error(err);
+        setError("Error al procesar la imagen seleccionada.");
+      } finally {
+        setProcessingMedia(false);
+      }
     } else {
-      setError("Solo se aceptan archivos PDF o imágenes válidas.");
+      setError("Solo se aceptan archivos PDF o imágenes válidas (JPG, PNG, WEBP).");
     }
 
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -463,7 +504,7 @@ export default function Tutor() {
   return (
     <div className="flex h-screen w-full gap-0 overflow-hidden text-primary">
 
-      {/* navbar lateral */}
+      {/* Navbar lateral de historial */}
       <div className="w-64 h-full bg-black/30 border-r border-white/10 flex flex-col justify-between backdrop-blur-md shrink-0">
         <div className="flex flex-col flex-1 overflow-hidden p-3 gap-3">
           <button
@@ -471,7 +512,7 @@ export default function Tutor() {
             className="flex items-center gap-2 w-full border border-purple-500/30 bg-purple-600/10 hover:bg-purple-600/20 text-sm font-medium rounded-xl p-3 text-purple-200 transition-all shadow-md active:scale-[0.98]"
           >
             <Plus size={16} />
-            Nuevo historial médico
+            Nueva consulta médica
           </button>
 
           <div className="flex flex-col gap-1 overflow-y-auto flex-1 pr-1 select-none">
@@ -506,28 +547,33 @@ export default function Tutor() {
         </div>
 
         <div className="p-3 border-t border-white/5 bg-black/10 text-[11px] opacity-40 text-center font-mono">
-          MedBot Local Storage v1.0
+          MANOLIA AI • Visión Médica Activa
         </div>
       </div>
 
-      {/*  contenido del area del chat principal */}
+      {/* Contenido principal del chat */}
       <div className="flex-1 flex flex-col h-full bg-transparent p-4 md:p-6 overflow-hidden">
         {error && (
-          <div className="mb-3 flex animate-slide-up items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-2.5 text-xs text-yellow-400">
+          <div className="mb-3 flex animate-slide-up items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-yellow-300">
             <AlertTriangle size={16} className="flex-shrink-0" />
-            <span>{error}</span>
+            <span className="flex-1">{error}</span>
+            <button onClick={() => setError(null)} className="text-yellow-400 hover:text-white font-bold text-xs">✕</button>
           </div>
         )}
 
-        {/* ventana de mensajes */}
+        {/* Ventana de mensajes */}
         <div className="flex-1 overflow-y-auto flex flex-col gap-4 pr-2 pb-4">
           {messages.length === 0 && !loading && (
-            <div className="flex flex-col items-center justify-center h-full gap-4 opacity-50">
-              <Bot size={48} strokeWidth={1.2} />
-              <p className="text-center text-sm text-secondary">Pregúntale a MANOLIA lo que necesites</p>
-              <p className="mx-auto max-w-xs text-center text-xs text-secondary">
-                Tu historial de consultas se guardará automáticamente en el panel izquierdo.
-              </p>
+            <div className="flex flex-col items-center justify-center h-full gap-4 opacity-70">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-600/30 to-fuchsia-600/20 border border-purple-500/20 flex items-center justify-center">
+                <Bot size={36} className="text-purple-300" strokeWidth={1.5} />
+              </div>
+              <div className="text-center">
+                <p className="text-base font-semibold text-purple-200 mb-1">Pregúntale a MANOLIA lo que necesites</p>
+                <p className="max-w-md text-xs text-secondary leading-relaxed">
+                  Puedes escribir dudas, pegar capturas de pantalla médicas con <span className="font-mono bg-white/10 px-1.5 py-0.5 rounded text-purple-300">Ctrl + V</span>, o subir diapositivas y PDFs.
+                </p>
+              </div>
             </div>
           )}
 
@@ -541,58 +587,95 @@ export default function Tutor() {
                 }`}>
                 {msg.role === "user" ? <User size={18} /> : <Bot size={18} />}
               </div>
-              <div className={`max-w-xl rounded-3xl border border-purple-500/15 px-5 py-3.5 text-sm leading-relaxed backdrop-blur-md ${msg.role === "user" ? "bg-gradient-to-br from-purple-600/35 to-fuchsia-600/20" : "bg-white/5"
+              <div className={`max-w-2xl rounded-3xl border border-purple-500/15 px-5 py-3.5 text-sm leading-relaxed backdrop-blur-md ${msg.role === "user" ? "bg-gradient-to-br from-purple-600/35 to-fuchsia-600/20 text-white" : "bg-white/5 text-slate-100"
                 }`}>
                 {msg.image && (
-                  <img src={msg.image} alt="Adjunto" className="w-full max-h-56 object-contain rounded-lg mb-2.5 border border-white/10" />
+                  <img
+                    src={msg.image}
+                    alt="Captura o imagen adjunta"
+                    className="w-full max-h-72 object-contain rounded-xl mb-3 border border-purple-500/20 bg-black/40"
+                  />
                 )}
                 {msg.role === "assistant" ? (
                   <MarkdownContent variant="chat">{msg.content}</MarkdownContent>
                 ) : (
-                  msg.content
+                  <div className="whitespace-pre-wrap">{msg.content}</div>
                 )}
               </div>
             </div>
           ))}
 
-          {loading && (
+          {(loading || processingMedia) && (
             <div className="flex animate-slide-up items-start gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-purple-700 to-fuchsia-600">
                 <Bot size={18} />
               </div>
-              <div className="flex items-center gap-1.5 rounded-3xl border border-purple-500/15 bg-white/5 px-5 py-3.5 backdrop-blur-md">
-                <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:0s]" />
-                <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:150ms]" />
-                <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:300ms]" />
+              <div className="flex items-center gap-2.5 rounded-3xl border border-purple-500/15 bg-white/5 px-5 py-3.5 backdrop-blur-md text-xs text-purple-200">
+                {processingMedia ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin text-purple-400" />
+                    <span>Optimizando captura de pantalla médica...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:0s]" />
+                    <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:150ms]" />
+                    <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:300ms]" />
+                    <span className="ml-1 text-[11px] opacity-70">MANOLIA está analizando...</span>
+                  </>
+                )}
               </div>
             </div>
           )}
           <div ref={messagesEndRef} />
         </div>
 
-        {/* archivos adjuntos actuales */}
+        {/* Archivos adjuntos actuales */}
         {attachment && (
-          <div className="mb-2 flex animate-slide-up items-center gap-2 rounded-lg border border-purple-500/25 bg-purple-600/15 px-3.5 py-2 text-xs text-purple-300 max-w-xl">
-            {attachment.type === "pdf" ? <FileUp size={15} /> : <ImageIcon size={15} />}
-            <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap">
-              {attachment.type === "image" && (
-                <img src={attachment.content} alt="Thumbnail" className="w-6 h-6 rounded object-cover border border-white/10" />
-              )}
-              {attachment.type === "pdf" ? "📄" : "📷"} {attachment.name} ({((attachment.content.length * 2) / 1024).toFixed(1)} KB extraídos)
-            </span>
-            <button type="button" onClick={() => { setAttachment(null); setInput(""); }} className="ml-auto text-purple-300 hover:text-purple-100 font-bold">✕</button>
+          <div className="mb-2 flex animate-slide-up items-center gap-3 rounded-xl border border-purple-500/30 bg-purple-600/15 px-3.5 py-2 text-xs text-purple-200 max-w-xl">
+            {attachment.type === "image" ? (
+              <img
+                src={attachment.content}
+                alt="Thumbnail"
+                className="w-10 h-10 rounded-lg object-cover border border-purple-400/30 shadow"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center border border-purple-400/30">
+                <FileUp size={18} className="text-purple-300" />
+              </div>
+            )}
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="font-medium text-purple-100 truncate">{attachment.name}</span>
+              <span className="text-[10px] opacity-70">
+                {attachment.type === "image" ? "Captura médica optimizada para visión IA" : "Documento PDF listo"}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setAttachment(null); setInput(""); }}
+              className="p-1 rounded-md hover:bg-white/10 text-purple-300 hover:text-white"
+              title="Quitar adjunto"
+            >
+              ✕
+            </button>
           </div>
         )}
 
-        {/* input Bar */}
+        {/* Barra de entrada */}
         <div className="flex gap-2 pt-4 border-t border-white/10 items-center">
-          <input ref={fileInputRef} type="file" accept=".pdf, image/*" onChange={handleFileUpload} className="hidden" />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf, image/png, image/jpeg, image/webp"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
 
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={loading}
-            title="Subir archivo"
-            className={`w-12 h-12 rounded-2xl border transition-all flex items-center justify-center ${attachment ? "border-purple-400/50 bg-purple-600/15 text-purple-300" : "border-white/10 bg-white/5 text-secondary hover:bg-white/10"
+            disabled={loading || processingMedia}
+            title="Subir archivo PDF o imagen médica"
+            className={`w-12 h-12 rounded-2xl border transition-all flex items-center justify-center ${attachment ? "border-purple-400/50 bg-purple-600/20 text-purple-300" : "border-white/10 bg-white/5 text-secondary hover:bg-white/10 hover:text-primary"
               }`}
           >
             <FileUp size={20} />
@@ -600,18 +683,18 @@ export default function Tutor() {
 
           <button
             onClick={toggleVoice}
-            title={isListening ? "Detener" : "Hablar"}
-            className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition-all ${isListening ? "border-red-500/50 bg-red-600/15 text-red-400 animate-pulse" : "border-white/10 bg-white/5 text-secondary hover:bg-white/10"
+            disabled={loading}
+            title={isListening ? "Detener dictado" : "Dictar con voz"}
+            className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition-all ${isListening ? "border-red-500/50 bg-red-600/20 text-red-400 animate-pulse" : "border-white/10 bg-white/5 text-secondary hover:bg-white/10 hover:text-primary"
               }`}
           >
             {isListening ? <MicOff size={20} /> : <Mic size={20} />}
           </button>
 
-          {/* botón de control de voz del Bot */}
           <button
             onClick={toggleBotVoiceOutput}
-            title={voiceEnabled ? "Silenciar respuestas del bot" : "Escuchar respuestas del bot"}
-            className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition-all ${voiceEnabled ? "border-purple-500/30 bg-purple-600/10 text-purple-400" : "border-white/10 bg-white/5 text-secondary/50 hover:bg-white/10"
+            title={voiceEnabled ? "Silenciar voz de MANOLIA" : "Activar voz de MANOLIA"}
+            className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition-all ${voiceEnabled ? "border-purple-500/40 bg-purple-600/15 text-purple-300" : "border-white/10 bg-white/5 text-secondary/40 hover:bg-white/10"
               }`}
           >
             {voiceEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
@@ -620,15 +703,24 @@ export default function Tutor() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && send()}
-            placeholder={isListening ? "Escuchando... presione Enter o el botón para enviar" : attachment ? "Escribe una duda sobre el archivo o presiona Enviar..." : "Pregúntame algo de medicina (PDF hasta 20MB o pega una captura)..."}
-            className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-5 py-3.5 text-sm text-primary outline-none transition-all focus:border-purple-500/50"
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
+            placeholder={
+              isListening
+                ? "Escuchando tu voz..."
+                : attachment
+                  ? "Escribe una pregunta sobre la captura o presiona Enviar..."
+                  : "Pregúntale a MANOLIA (o presiona Ctrl + V para pegar una captura médica)..."
+            }
+            disabled={loading || processingMedia}
+            className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-5 py-3.5 text-sm text-primary placeholder:text-secondary/60 outline-none transition-all focus:border-purple-500/50 focus:bg-white/[0.07]"
           />
 
           <button
             onClick={() => send()}
-            disabled={loading || (!input.trim() && !attachment)}
-            className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${loading || (!input.trim() && !attachment) ? "bg-white/5 text-secondary cursor-not-allowed" : "bg-gradient-to-br from-purple-600 to-fuchsia-500 text-white"
+            disabled={loading || processingMedia || (!input.trim() && !attachment)}
+            className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all shadow-md ${loading || processingMedia || (!input.trim() && !attachment)
+              ? "bg-white/5 text-secondary/40 border border-white/5 cursor-not-allowed"
+              : "bg-gradient-to-br from-purple-600 to-fuchsia-500 hover:from-purple-500 hover:to-fuchsia-400 text-white shadow-purple-500/25 active:scale-95"
               }`}
           >
             <Send size={20} />
