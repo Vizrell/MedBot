@@ -1,16 +1,16 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { Sparkles, Copy, Check, FileUp, AlertTriangle, Loader2 } from "lucide-react";
+import { Sparkles, Copy, Check, FileUp, AlertTriangle, Loader2, X } from "lucide-react";
 import MarkdownContent from "./MarkdownContent";
 import { processImage, normalizeMediaType } from "../lib/imageUtils";
 
-const SAMPLE_TOPICS = [
-  "Sistema Cardiovascular",
-  "Sistema Nervioso",
-  "Farmacología Básica",
-  "Anatomía del Aparato Digestivo",
-  "Inmunología",
-];
+interface Attachment {
+  id: string;
+  type: "pdf" | "image";
+  name: string;
+  content: string; 
+  mediaType?: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+}
 
 export default function Resumir() {
   const [topic, setTopic] = useState("");
@@ -18,47 +18,56 @@ export default function Resumir() {
   const [loading, setLoading] = useState(false);
   const [processingMedia, setProcessingMedia] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [attachment, setAttachment] = useState<{
-    type: "pdf" | "image";
-    name: string;
-    content: string; 
-    mediaType?: string;
-  } | null>(null);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Detector de capturas de pantalla (Ctrl + V / Portapapeles)
+  // Detector de capturas de pantalla (Ctrl + V / Portapapeles) - múltiples capturas
   useEffect(() => {
     async function handlePaste(e: ClipboardEvent) {
       const items = e.clipboardData?.items;
       if (!items) return;
 
+      const imageFiles: File[] = [];
       for (const item of Array.from(items)) {
         if (item.type.startsWith("image/")) {
           const file = item.getAsFile();
-          if (!file) continue;
-
-          e.preventDefault();
-          setProcessingMedia(true);
-          setError(null);
-
-          try {
-            const processed = await processImage(file);
-            setAttachment({
-              type: "image",
-              name: "captura_portapapeles.jpg",
-              content: processed.dataUrl,
-              mediaType: processed.mediaType,
-            });
-            setTopic("Analiza y resume esta captura de pantalla médica detalladamente.");
-          } catch (err) {
-            console.error("Error al procesar captura:", err);
-            setError("No se pudo procesar la captura de pantalla pegada.");
-          } finally {
-            setProcessingMedia(false);
-          }
-          break;
+          if (file) imageFiles.push(file);
         }
+      }
+
+      if (imageFiles.length === 0) return;
+
+      e.preventDefault();
+      setProcessingMedia(true);
+      setError(null);
+
+      try {
+        const processedResults = await Promise.all(
+          imageFiles.map(file => processImage(file))
+        );
+
+        const newAttachments: Attachment[] = processedResults.map((p, idx) => ({
+          id: `img_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`,
+          type: "image",
+          name: imageFiles[idx].name || `captura_${idx + 1}.jpg`,
+          content: p.dataUrl,
+          mediaType: p.mediaType,
+        }));
+
+        setAttachments(prev => [...prev, ...newAttachments]);
+        setTopic(prev =>
+          prev.trim()
+            ? prev
+            : newAttachments.length > 1
+              ? `Analiza y resume estas ${newAttachments.length} capturas de pantalla médicas.`
+              : "Analiza y resume esta captura de pantalla médica detalladamente."
+        );
+      } catch (err) {
+        console.error("Error al procesar capturas:", err);
+        setError("No se pudieron procesar las capturas de pantalla pegadas.");
+      } finally {
+        setProcessingMedia(false);
       }
     }
 
@@ -66,151 +75,177 @@ export default function Resumir() {
     return () => window.removeEventListener("paste", handlePaste);
   }, []);
 
-  // Función de carga manual de archivos
+  // Función de carga manual de archivos múltiples
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
     setError(null);
+    setProcessingMedia(true);
 
-    if (file.type === "application/pdf") {
-      if (file.size > 20 * 1024 * 1024) {
-        setError("El archivo supera el límite permitido de 20 MB.");
-        return;
-      }
-      setLoading(true);
-      setError(null);
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        const pdfjsLib = await import("pdfjs-dist");
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+    const fileList = Array.from(files);
+    const newAttachments: Attachment[] = [];
 
-        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-        const pdf = await loadingTask.promise;
+    try {
+      for (const file of fileList) {
+        if (file.type === "application/pdf") {
+          if (file.size > 20 * 1024 * 1024) {
+            setError(`El archivo "${file.name}" supera el límite de 20 MB.`);
+            continue;
+          }
 
-        let fullText = "";
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const textContent = await page.getTextContent();
-          const pageText = textContent.items
-            // @ts-ignore
-            .map((item) => item.str || "")
-            .join(" ");
-          fullText += pageText + "\n";
+          const arrayBuffer = await file.arrayBuffer();
+          const pdfjsLib = await import("pdfjs-dist");
+          pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+
+          const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+          const pdf = await loadingTask.promise;
+
+          let fullText = "";
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items
+              // @ts-ignore
+              .map((item) => item.str || "")
+              .join(" ");
+            fullText += pageText + "\n";
+          }
+
+          if (fullText.trim().length >= 20) {
+            newAttachments.push({
+              id: `pdf_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              type: "pdf",
+              name: file.name,
+              content: fullText.trim(),
+            });
+          } else {
+            setError(`No se pudo extraer texto legible del PDF "${file.name}".`);
+          }
+        } else if (file.type.startsWith("image/")) {
+          const processed = await processImage(file);
+          newAttachments.push({
+            id: `img_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            type: "image",
+            name: file.name,
+            content: processed.dataUrl,
+            mediaType: processed.mediaType,
+          });
         }
-
-        if (fullText.trim().length < 20) {
-          setError("No se pudo extraer texto legible. Verifica que el PDF contenga texto o capas legibles.");
-          setLoading(false);
-          return;
-        }
-
-        setAttachment({
-          type: "pdf",
-          name: file.name,
-          content: fullText.trim(),
-        });
-
-        setTopic(`Resumen de: ${file.name}`);
-      } catch (err) {
-        console.error(err);
-        setError("Ocurrió un error al intentar procesar el PDF.");
-      } finally {
-        setLoading(false);
       }
-    } else if (file.type.startsWith("image/")) {
-      setProcessingMedia(true);
-      try {
-        const processed = await processImage(file);
-        setAttachment({
-          type: "image",
-          name: file.name,
-          content: processed.dataUrl,
-          mediaType: processed.mediaType,
-        });
-        setTopic(`Resumen de: ${file.name}`);
-      } catch (err) {
-        console.error(err);
-        setError("Error al procesar la imagen seleccionada.");
-      } finally {
-        setProcessingMedia(false);
+
+      if (newAttachments.length > 0) {
+        setAttachments(prev => [...prev, ...newAttachments]);
+        setTopic(prev =>
+          prev.trim()
+            ? prev
+            : newAttachments.length > 1
+              ? `Resumen de los ${newAttachments.length} archivos adjuntos`
+              : `Resumen de: ${newAttachments[0].name}`
+        );
       }
-    } else {
-      setError("Formato no soportado. Por favor, sube archivos PDF o imágenes válidas.");
+    } catch (err) {
+      console.error("Error al procesar archivos:", err);
+      setError("Ocurrió un error al procesar los archivos seleccionados.");
+    } finally {
+      setProcessingMedia(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  }
 
-    if (fileInputRef.current) fileInputRef.current.value = "";
+  function removeAttachment(id: string) {
+    setAttachments(prev => prev.filter(a => a.id !== id));
+  }
+
+  function clearAllAttachments() {
+    setAttachments([]);
   }
 
   async function generate() {
     const currentTopic = topic.trim();
-    if ((!currentTopic && !attachment) || loading || processingMedia) return;
+    if ((!currentTopic && attachments.length === 0) || loading || processingMedia) return;
 
     setLoading(true);
     setSummary("");
     setError(null);
 
     try {
-      let basePromptText = currentTopic || (attachment?.type === "pdf" ? `Resumen del documento médico` : `Analiza detalladamente esta imagen médica...`);
-      let promptContent = `Genera un resumen estructurado sobre: "${basePromptText}". Usa markdown con títulos (##), subtítulos (###) y viñetas.`;
-      let messagesPayload: any[] = [];
+      const imageAttachments = attachments.filter(a => a.type === "image");
+      const pdfAttachments = attachments.filter(a => a.type === "pdf");
 
-      if (attachment) {
-        if (attachment.type === "pdf") {
-          promptContent = `
-Analiza el siguiente contenido médico extraído del PDF "${attachment.name}".
+      let basePromptText = currentTopic;
+      if (!basePromptText) {
+        if (imageAttachments.length > 0 && pdfAttachments.length > 0) {
+          basePromptText = "Resumen completo de las imágenes y documentos médicos adjuntos.";
+        } else if (imageAttachments.length > 0) {
+          basePromptText = `Analiza y resume detalladamente las ${imageAttachments.length} imágenes médicas adjuntas.`;
+        } else {
+          basePromptText = `Resumen estructurado de los ${pdfAttachments.length} documentos PDF adjuntos.`;
+        }
+      }
 
-Genera una respuesta estructurada utilizando exactamente este formato:
+      let pdfTextContent = "";
+      if (pdfAttachments.length > 0) {
+        pdfTextContent = pdfAttachments
+          .map((p, idx) => `--- [Documento PDF ${idx + 1}: "${p.name}"] ---\n${p.content}`)
+          .join("\n\n");
+      }
+
+      const promptTemplate = `
+${pdfTextContent ? `Contenido de los documentos adjuntos:\n${pdfTextContent}\n\n---\n` : ""}
+Solicitud del usuario:
+"${basePromptText}"
+
+Genera una respuesta estructurada utilizando exactamente este formato en Markdown:
 
 ## Resumen General
-Explicación clara y organizada de la lectura.
+Explicación clara y organizada del contenido o de los hallazgos en las capturas.
 
 ## Conceptos Clave
 - Punto importante 1
 - Punto importante 2
 
 ## Tabla Resumen
-| Concepto | Descripción |
+| Concepto / Hallazgo | Descripción / Relevancia Clínica |
 
 ## Puntos de Examen
-- Datos que suelen preguntarse en evaluaciones médicas.
+- Datos clave que suelen preguntarse en evaluaciones médicas sobre este tema.
 
 ## Mnemotecnia
-Crea una mnemotecnia útil si aplica para el tema.
-
-Contenido del documento original:
-${attachment.content}
+Crea una mnemotecnia útil para recordar el tema si aplica.
 `;
-          messagesPayload = [{ role: "user", content: promptContent }];
-        } else if (attachment.type === "image") {
-          const base64Raw = attachment.content.includes(",")
-            ? attachment.content.split(",")[1]
-            : attachment.content;
 
-          const mediaType = normalizeMediaType(attachment.mediaType);
+      const contentBlocks: any[] = [];
 
-          messagesPayload = [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "image",
-                  source: {
-                    type: "base64",
-                    media_type: mediaType,
-                    data: base64Raw,
-                  },
-                },
-                {
-                  type: "text",
-                  text: basePromptText,
-                },
-              ],
-            },
-          ];
-        }
-      } else {
-        messagesPayload = [{ role: "user", content: promptContent }];
+      // Agregar todas las imágenes como bloques multimodales
+      for (const img of imageAttachments) {
+        const base64Raw = img.content.includes(",")
+          ? img.content.split(",")[1]
+          : img.content;
+        const mediaType = normalizeMediaType(img.mediaType);
+
+        contentBlocks.push({
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: mediaType,
+            data: base64Raw,
+          },
+        });
       }
+
+      contentBlocks.push({
+        type: "text",
+        text: promptTemplate,
+      });
+
+      const messagesPayload = [
+        {
+          role: "user",
+          content: contentBlocks.length === 1 && contentBlocks[0].type === "text"
+            ? promptTemplate
+            : contentBlocks,
+        },
+      ];
 
       const res = await fetch("/api/resumir", {
         method: "POST",
@@ -241,7 +276,7 @@ ${attachment.content}
   }
 
   return (
-    <div className="flex flex-col h-full gap-5">
+    <div className="flex flex-col h-full gap-4">
       {/* Banner de errores */}
       {error && (
         <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-yellow-300 text-xs">
@@ -251,37 +286,53 @@ ${attachment.content}
         </div>
       )}
 
-      {/* Banner de archivo adjunto */}
-      {attachment && (
-        <div className="flex items-center gap-3 rounded-xl border border-purple-500/30 bg-purple-600/15 px-3.5 py-2 text-xs text-purple-200">
-          {attachment.type === "image" ? (
-            <img
-              src={attachment.content}
-              alt="Thumbnail"
-              className="w-10 h-10 rounded-lg object-cover border border-purple-400/30 shadow"
-            />
-          ) : (
-            <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center border border-purple-400/30">
-              <FileUp size={18} className="text-purple-300" />
-            </div>
-          )}
-          <div className="flex min-w-0 flex-1 flex-col">
-            <span className="font-medium text-purple-100 truncate">{attachment.name}</span>
-            <span className="text-[10px] opacity-70">
-              {attachment.type === "image" ? "Captura médica optimizada" : "Documento PDF listo"}
+      {/* Barra de previsualización de archivos adjuntos */}
+      {attachments.length > 0 && (
+        <div className="flex flex-col gap-1.5 p-2.5 rounded-2xl border border-purple-500/30 bg-purple-950/40 backdrop-blur-md">
+          <div className="flex items-center justify-between px-1 text-[11px] text-purple-300 font-medium">
+            <span>
+              {attachments.length} {attachments.length === 1 ? "archivo adjunto" : "archivos adjuntos"} listos para resumir
             </span>
+            <button
+              type="button"
+              onClick={clearAllAttachments}
+              className="text-[10px] text-purple-400 hover:text-red-400 transition-colors"
+            >
+              Limpiar todo
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setAttachment(null);
-              setTopic("");
-            }}
-            className="p-1 rounded-md hover:bg-white/10 text-purple-300 hover:text-white"
-            title="Quitar adjunto"
-          >
-            ✕
-          </button>
+
+          <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-1">
+            {attachments.map((att) => (
+              <div
+                key={att.id}
+                className="group relative flex items-center gap-2 rounded-xl border border-purple-500/25 bg-purple-600/15 p-1.5 pr-3 text-xs text-purple-200 max-w-[220px]"
+              >
+                {att.type === "image" ? (
+                  <img
+                    src={att.content}
+                    alt={att.name}
+                    className="w-8 h-8 rounded-lg object-cover border border-purple-400/30 shrink-0"
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center border border-purple-400/30 shrink-0">
+                    <FileUp size={14} className="text-purple-300" />
+                  </div>
+                )}
+
+                <span className="truncate text-[11px] flex-1 font-medium">{att.name}</span>
+
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(att.id)}
+                  className="p-1 rounded-md text-purple-300 hover:bg-red-500/20 hover:text-red-300 transition-colors"
+                  title="Quitar este archivo"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -290,6 +341,7 @@ ${attachment.content}
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           accept=".pdf, image/png, image/jpeg, image/webp"
           onChange={handleFileUpload}
           className="hidden"
@@ -297,11 +349,11 @@ ${attachment.content}
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={loading || processingMedia}
-          className={`w-12 h-12 rounded-2xl border transition-all flex-shrink-0 flex items-center justify-center ${attachment
+          className={`w-12 h-12 rounded-2xl border transition-all flex-shrink-0 flex items-center justify-center ${attachments.length > 0
             ? "border-purple-400/50 bg-purple-600/20 text-purple-300"
             : "border-border bg-white/5 text-secondary hover:bg-white/10 hover:text-primary"
             }`}
-          title="Subir PDF o Imagen Médica"
+          title="Subir archivos o múltiples imágenes médicas"
         >
           <FileUp size={20} />
         </button>
@@ -312,20 +364,20 @@ ${attachment.content}
           onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && generate()}
           placeholder={
             processingMedia
-              ? "Optimizando captura de pantalla..."
+              ? "Optimizando capturas de pantalla..."
               : loading
-                ? "Generando resumen médico con IA..."
-                : attachment
-                  ? `Listo para resumir: ${attachment.name}`
-                  : "Escribe un tema, sube un PDF o pega un screenshot (Ctrl + V)..."
+                ? "Generando resumen estructurado con IA..."
+                : attachments.length > 0
+                  ? `Listo para resumir ${attachments.length} archivos adjuntos`
+                  : "Escribe un tema, sube varios PDFs o pega capturas (Ctrl + V)..."
           }
           disabled={loading || processingMedia}
           className="flex-1 rounded-xl border border-border bg-white/5 px-5 py-3.5 text-sm text-primary outline-none focus:border-purple-500/50"
         />
         <button
           onClick={generate}
-          disabled={loading || processingMedia || (!topic.trim() && !attachment)}
-          className={`px-6 py-3.5 rounded-xl flex items-center gap-2 text-sm font-semibold transition-all shadow-md ${loading || processingMedia || (!topic.trim() && !attachment)
+          disabled={loading || processingMedia || (!topic.trim() && attachments.length === 0)}
+          className={`px-6 py-3.5 rounded-xl flex items-center gap-2 text-sm font-semibold transition-all shadow-md ${loading || processingMedia || (!topic.trim() && attachments.length === 0)
             ? "bg-white/10 text-secondary/40 cursor-not-allowed"
             : "bg-gradient-to-br from-purple-600 to-fuchsia-500 hover:from-purple-500 hover:to-fuchsia-400 text-white active:scale-95"
             }`}

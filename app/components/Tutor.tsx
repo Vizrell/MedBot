@@ -1,13 +1,22 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, AlertTriangle, Mic, MicOff, FileUp, Image as ImageIcon, MessageSquare, Plus, Trash2, Volume2, VolumeX, Loader2 } from "lucide-react";
+import { Send, Bot, User, AlertTriangle, Mic, MicOff, FileUp, Image as ImageIcon, MessageSquare, Plus, Trash2, Volume2, VolumeX, Loader2, X } from "lucide-react";
 import MarkdownContent from "./MarkdownContent";
 import { processImage, normalizeMediaType } from "../lib/imageUtils";
+
+interface Attachment {
+  id: string;
+  type: "pdf" | "image";
+  name: string;
+  content: string; // DataURL para imágenes o texto extraído para PDFs
+  mediaType?: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+}
 
 interface Message {
   role: "user" | "assistant";
   content: string;
-  image?: string;
+  images?: string[];
+  image?: string; // Compatibilidad con chats previos
 }
 
 interface ChatSession {
@@ -44,17 +53,13 @@ export default function Tutor() {
   // Control de voz del bot
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
 
-  const [attachment, setAttachment] = useState<{
-    type: "pdf" | "image";
-    name: string;
-    content: string;
-    mediaType?: string;
-  } | null>(null);
+  // Múltiples archivos adjuntos (capturas o PDFs)
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const attachmentRef = useRef(attachment);
+  const attachmentsRef = useRef<Attachment[]>(attachments);
   const stoppedRef = useRef(false);
 
   // Cargar chats desde localStorage de forma segura
@@ -84,8 +89,9 @@ export default function Tutor() {
         ...c,
         messages: (c.messages || []).map(m => ({
           ...m,
-          // Mantener vista previa de imagen sólo si es ligera
-          image: m.image && m.image.length > 400000 ? undefined : m.image,
+          // Mantener vista previa de imágenes sólo si son ligeras
+          images: m.images ? m.images.filter(img => img.length <= 350000) : undefined,
+          image: m.image && m.image.length > 350000 ? undefined : m.image,
         })),
         apiHistory: (c.apiHistory || []).map(entry => {
           if (Array.isArray(entry.content)) {
@@ -93,7 +99,7 @@ export default function Tutor() {
               ...entry,
               content: entry.content.map((block: any) => {
                 if (block.type === "image") {
-                  return { type: "text", text: "[Captura/Imagen médica adjunta procesada]" };
+                  return { type: "text", text: "[Captura/Imagen médica procesada]" };
                 }
                 return block;
               }),
@@ -108,38 +114,53 @@ export default function Tutor() {
     }
   };
 
-  // Detector de capturas de pantalla pegadas (Ctrl + V / Portapapeles)
+  // Detector de capturas de pantalla pegadas (Ctrl + V / Portapapeles) - Múltiples capturas
   useEffect(() => {
     async function handlePaste(e: ClipboardEvent) {
       const items = e.clipboardData?.items;
       if (!items) return;
 
+      const imageFiles: File[] = [];
       for (const item of Array.from(items)) {
         if (item.type.startsWith("image/")) {
           const file = item.getAsFile();
-          if (!file) continue;
-
-          e.preventDefault();
-          setProcessingMedia(true);
-          setError(null);
-
-          try {
-            const processed = await processImage(file);
-            setAttachment({
-              type: "image",
-              name: "captura_pantalla.jpg",
-              content: processed.dataUrl,
-              mediaType: processed.mediaType,
-            });
-            setInput("Analiza esta captura de pantalla médica detalladamente.");
-          } catch (err: any) {
-            console.error("Error al procesar captura:", err);
-            setError("No se pudo procesar la captura de pantalla pegada.");
-          } finally {
-            setProcessingMedia(false);
-          }
-          break;
+          if (file) imageFiles.push(file);
         }
+      }
+
+      if (imageFiles.length === 0) return;
+
+      e.preventDefault();
+      setProcessingMedia(true);
+      setError(null);
+
+      try {
+        const processedResults = await Promise.all(
+          imageFiles.map(file => processImage(file))
+        );
+
+        const newAttachments: Attachment[] = processedResults.map((p, idx) => ({
+          id: `img_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`,
+          type: "image",
+          name: imageFiles[idx].name || `captura_${idx + 1}.jpg`,
+          content: p.dataUrl,
+          mediaType: p.mediaType,
+        }));
+
+        setAttachments(prev => [...prev, ...newAttachments]);
+
+        setInput(prev =>
+          prev.trim()
+            ? prev
+            : newAttachments.length > 1
+              ? `Analiza estas ${newAttachments.length} capturas de pantalla médicas detalladamente.`
+              : "Analiza esta captura de pantalla médica detalladamente."
+        );
+      } catch (err: any) {
+        console.error("Error al procesar capturas pegadas:", err);
+        setError("No se pudieron procesar las capturas de pantalla pegadas.");
+      } finally {
+        setProcessingMedia(false);
       }
     }
 
@@ -148,8 +169,8 @@ export default function Tutor() {
   }, []);
 
   useEffect(() => {
-    attachmentRef.current = attachment;
-  }, [attachment]);
+    attachmentsRef.current = attachments;
+  }, [attachments]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -161,7 +182,7 @@ export default function Tutor() {
     setMessages([]);
     setApiHistory([]);
     setInput("");
-    setAttachment(null);
+    setAttachments([]);
   }
 
   function selectChat(chatId: string) {
@@ -184,52 +205,85 @@ export default function Tutor() {
     }
   }
 
+  function removeAttachment(id: string) {
+    setAttachments(prev => prev.filter(a => a.id !== id));
+  }
+
+  function clearAllAttachments() {
+    setAttachments([]);
+  }
+
   // Enviar mensaje al bot
   async function send(textOverride?: string) {
     const textToSend = textOverride || input;
-    const currentAttachment = attachmentRef.current;
+    const currentAttachments = attachmentsRef.current;
 
-    if ((!textToSend.trim() && !currentAttachment) || loading || processingMedia) return;
+    if ((!textToSend.trim() && currentAttachments.length === 0) || loading || processingMedia) return;
 
     let baseText = textToSend.trim();
-    if (!baseText && currentAttachment) {
-      baseText = currentAttachment.type === "pdf"
-        ? `Analiza y resume el contenido de este PDF: "${currentAttachment.name}"`
-        : `Analiza esta imagen médica: "${currentAttachment.name}"`;
-    }
+    if (!baseText && currentAttachments.length > 0) {
+      const imageCount = currentAttachments.filter(a => a.type === "image").length;
+      const pdfCount = currentAttachments.filter(a => a.type === "pdf").length;
 
-    let apiMessageContent: any = baseText;
-    if (currentAttachment) {
-      if (currentAttachment.type === "pdf") {
-        apiMessageContent = `[Contenido completo del PDF "${currentAttachment.name}"]: \n${currentAttachment.content}\n\n---\n\nPregunta del usuario: ${baseText}`;
-      } else if (currentAttachment.type === "image") {
-        const base64Raw = currentAttachment.content.includes(",")
-          ? currentAttachment.content.split(",")[1]
-          : currentAttachment.content;
-
-        const mediaType = normalizeMediaType(currentAttachment.mediaType);
-
-        apiMessageContent = [
-          {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: mediaType,
-              data: base64Raw,
-            },
-          },
-          { type: "text", text: baseText },
-        ];
+      if (imageCount > 0 && pdfCount > 0) {
+        baseText = `Analiza las ${imageCount} imágenes y ${pdfCount} documentos adjuntos.`;
+      } else if (imageCount > 1) {
+        baseText = `Analiza detalladamente estas ${imageCount} capturas e imágenes médicas:`;
+      } else if (imageCount === 1) {
+        baseText = `Analiza esta imagen médica: "${currentAttachments[0].name}"`;
+      } else {
+        baseText = `Analiza y resume el contenido de estos ${pdfCount} documentos PDF:`;
       }
     }
+
+    // Construir bloques de contenido multimodal para la API de Claude
+    const contentBlocks: any[] = [];
+    const imageAttachments = currentAttachments.filter(a => a.type === "image");
+    const pdfAttachments = currentAttachments.filter(a => a.type === "pdf");
+
+    // Agregar todas las imágenes como bloques de imagen
+    for (const img of imageAttachments) {
+      const base64Raw = img.content.includes(",")
+        ? img.content.split(",")[1]
+        : img.content;
+
+      const mediaType = normalizeMediaType(img.mediaType);
+
+      contentBlocks.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: mediaType,
+          data: base64Raw,
+        },
+      });
+    }
+
+    // Integrar contenido textual de PDFs si los hay
+    let promptText = baseText;
+    if (pdfAttachments.length > 0) {
+      const pdfDescriptions = pdfAttachments
+        .map((p, idx) => `--- [Documento PDF ${idx + 1}: "${p.name}"] ---\n${p.content}`)
+        .join("\n\n");
+      promptText = `${pdfDescriptions}\n\n---\n\nConsulta del usuario: ${baseText}`;
+    }
+
+    contentBlocks.push({
+      type: "text",
+      text: promptText,
+    });
+
+    const apiMessageContent = contentBlocks.length === 1 && contentBlocks[0].type === "text"
+      ? promptText
+      : contentBlocks;
 
     const userMsg: Message = {
       role: "user",
       content: baseText,
-      image: currentAttachment?.type === "image" ? currentAttachment.content : undefined,
+      images: imageAttachments.map(img => img.content),
     };
 
-    // Optimizar historial para enviar a la API: evitar reenviar imágenes pesadas de turnos anteriores
+    // Optimizar historial: convertir imágenes de turnos antiguos a texto para ahorrar miles de tokens
     const cleanedApiHistory = apiHistory.slice(-8).map(entry => {
       if (Array.isArray(entry.content)) {
         return {
@@ -253,7 +307,7 @@ export default function Tutor() {
     setInput("");
     setLoading(true);
     setError(null);
-    setAttachment(null);
+    setAttachments([]);
 
     let chatId = currentChatId;
     let currentChatsCopy = [...chats];
@@ -426,79 +480,81 @@ export default function Tutor() {
     setVoiceEnabled(!voiceEnabled);
   }
 
-  // Subida manual de archivos
+  // Subida manual de múltiples archivos
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
     setError(null);
+    setProcessingMedia(true);
 
-    if (file.type === "application/pdf") {
-      if (file.size > 20 * 1024 * 1024) {
-        setError("El archivo PDF supera el límite permitido de 20 MB.");
-        return;
-      }
-      setLoading(true);
-      setError(null);
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        const pdfjsLib = await import("pdfjs-dist");
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+    const fileList = Array.from(files);
+    const newAttachments: Attachment[] = [];
 
-        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-        const pdf = await loadingTask.promise;
+    try {
+      for (const file of fileList) {
+        if (file.type === "application/pdf") {
+          if (file.size > 20 * 1024 * 1024) {
+            setError(`El archivo "${file.name}" supera el límite de 20 MB.`);
+            continue;
+          }
 
-        let fullText = "";
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const textContent = await page.getTextContent();
-          const pageText = textContent.items
-            // @ts-ignore
-            .map((item) => item.str || "")
-            .join(" ");
-          fullText += pageText + "\n";
+          const arrayBuffer = await file.arrayBuffer();
+          const pdfjsLib = await import("pdfjs-dist");
+          pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+
+          const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+          const pdf = await loadingTask.promise;
+
+          let fullText = "";
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items
+              // @ts-ignore
+              .map((item) => item.str || "")
+              .join(" ");
+            fullText += pageText + "\n";
+          }
+
+          if (fullText.trim().length >= 20) {
+            newAttachments.push({
+              id: `pdf_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              type: "pdf",
+              name: file.name,
+              content: fullText.trim(),
+            });
+          } else {
+            setError(`No se pudo extraer texto legible del PDF "${file.name}".`);
+          }
+        } else if (file.type.startsWith("image/")) {
+          const processed = await processImage(file);
+          newAttachments.push({
+            id: `img_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            type: "image",
+            name: file.name,
+            content: processed.dataUrl,
+            mediaType: processed.mediaType,
+          });
         }
-
-        if (fullText.trim().length < 20) {
-          setError("No se pudo extraer texto legible del PDF. Verifica que no sea puramente un escaneo de imágenes.");
-          setLoading(false);
-          return;
-        }
-
-        setAttachment({
-          type: "pdf",
-          name: file.name,
-          content: fullText.trim(),
-        });
-
-        setInput(`Analiza y resume el contenido de este PDF: "${file.name}"`);
-      } catch (err) {
-        console.error(err);
-        setError("Error al leer el archivo PDF.");
-      } finally {
-        setLoading(false);
       }
-    } else if (file.type.startsWith("image/")) {
-      setProcessingMedia(true);
-      try {
-        const processed = await processImage(file);
-        setAttachment({
-          type: "image",
-          name: file.name,
-          content: processed.dataUrl,
-          mediaType: processed.mediaType,
-        });
-        setInput(`Analiza esta imagen médica: "${file.name}"`);
-      } catch (err) {
-        console.error(err);
-        setError("Error al procesar la imagen seleccionada.");
-      } finally {
-        setProcessingMedia(false);
+
+      if (newAttachments.length > 0) {
+        setAttachments(prev => [...prev, ...newAttachments]);
+        setInput(prev =>
+          prev.trim()
+            ? prev
+            : newAttachments.length > 1
+              ? `Analiza estos ${newAttachments.length} archivos adjuntos.`
+              : `Analiza este archivo: "${newAttachments[0].name}"`
+        );
       }
-    } else {
-      setError("Solo se aceptan archivos PDF o imágenes válidas (JPG, PNG, WEBP).");
+    } catch (err: any) {
+      console.error("Error al procesar archivos:", err);
+      setError("Error al procesar los archivos seleccionados.");
+    } finally {
+      setProcessingMedia(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
-
-    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   return (
@@ -547,7 +603,7 @@ export default function Tutor() {
         </div>
 
         <div className="p-3 border-t border-white/5 bg-black/10 text-[11px] opacity-40 text-center font-mono">
-          MANOLIA AI • Visión Médica Activa
+          MANOLIA AI • Visión Multimodal Activa
         </div>
       </div>
 
@@ -565,45 +621,67 @@ export default function Tutor() {
         <div className="flex-1 overflow-y-auto flex flex-col gap-4 pr-2 pb-4">
           {messages.length === 0 && !loading && (
             <div className="flex flex-col items-center justify-center h-full gap-4 opacity-70">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-600/30 to-fuchsia-600/20 border border-purple-500/20 flex items-center justify-center">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-600/30 to-fuchsia-600/20 border border-purple-500/20 flex items-center justify-center shadow-lg shadow-purple-500/10">
                 <Bot size={36} className="text-purple-300" strokeWidth={1.5} />
               </div>
               <div className="text-center">
                 <p className="text-base font-semibold text-purple-200 mb-1">Pregúntale a MANOLIA lo que necesites</p>
                 <p className="max-w-md text-xs text-secondary leading-relaxed">
-                  Puedes escribir dudas, pegar capturas de pantalla médicas con <span className="font-mono bg-white/10 px-1.5 py-0.5 rounded text-purple-300">Ctrl + V</span>, o subir diapositivas y PDFs.
+                  Puedes escribir dudas, pegar varias capturas con <span className="font-mono bg-white/10 px-1.5 py-0.5 rounded text-purple-300">Ctrl + V</span> o subir múltiples imágenes médicas y PDFs a la vez.
                 </p>
               </div>
             </div>
           )}
 
-          {messages.map((msg, i) => (
-            <div
-              key={i}
-              className={`flex animate-slide-up items-start gap-3 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"
-                }`}
-            >
-              <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 bg-gradient-to-br ${msg.role === "user" ? "from-purple-600 to-fuchsia-500" : "from-purple-700 to-fuchsia-600"
-                }`}>
-                {msg.role === "user" ? <User size={18} /> : <Bot size={18} />}
+          {messages.map((msg, i) => {
+            const allImages = msg.images && msg.images.length > 0
+              ? msg.images
+              : msg.image
+                ? [msg.image]
+                : [];
+
+            return (
+              <div
+                key={i}
+                className={`flex animate-slide-up items-start gap-3 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"
+                  }`}
+              >
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 bg-gradient-to-br ${msg.role === "user" ? "from-purple-600 to-fuchsia-500" : "from-purple-700 to-fuchsia-600"
+                  }`}>
+                  {msg.role === "user" ? <User size={18} /> : <Bot size={18} />}
+                </div>
+                <div className={`max-w-2xl rounded-3xl border border-purple-500/15 px-5 py-3.5 text-sm leading-relaxed backdrop-blur-md ${msg.role === "user" ? "bg-gradient-to-br from-purple-600/35 to-fuchsia-600/20 text-white" : "bg-white/5 text-slate-100"
+                  }`}>
+                  {/* Galería de imágenes adjuntas en el mensaje */}
+                  {allImages.length > 0 && (
+                    <div className={`grid gap-2 mb-3 ${
+                      allImages.length === 1
+                        ? "grid-cols-1"
+                        : allImages.length === 2
+                          ? "grid-cols-2"
+                          : "grid-cols-2 sm:grid-cols-3"
+                    }`}>
+                      {allImages.map((imgUrl, imgIdx) => (
+                        <div key={imgIdx} className="relative group rounded-xl overflow-hidden border border-purple-500/20 bg-black/40">
+                          <img
+                            src={imgUrl}
+                            alt={`Captura ${imgIdx + 1}`}
+                            className="w-full h-44 object-contain group-hover:scale-105 transition-transform duration-200"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {msg.role === "assistant" ? (
+                    <MarkdownContent variant="chat">{msg.content}</MarkdownContent>
+                  ) : (
+                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                  )}
+                </div>
               </div>
-              <div className={`max-w-2xl rounded-3xl border border-purple-500/15 px-5 py-3.5 text-sm leading-relaxed backdrop-blur-md ${msg.role === "user" ? "bg-gradient-to-br from-purple-600/35 to-fuchsia-600/20 text-white" : "bg-white/5 text-slate-100"
-                }`}>
-                {msg.image && (
-                  <img
-                    src={msg.image}
-                    alt="Captura o imagen adjunta"
-                    className="w-full max-h-72 object-contain rounded-xl mb-3 border border-purple-500/20 bg-black/40"
-                  />
-                )}
-                {msg.role === "assistant" ? (
-                  <MarkdownContent variant="chat">{msg.content}</MarkdownContent>
-                ) : (
-                  <div className="whitespace-pre-wrap">{msg.content}</div>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
 
           {(loading || processingMedia) && (
             <div className="flex animate-slide-up items-start gap-3">
@@ -614,14 +692,14 @@ export default function Tutor() {
                 {processingMedia ? (
                   <>
                     <Loader2 size={14} className="animate-spin text-purple-400" />
-                    <span>Optimizando captura de pantalla médica...</span>
+                    <span>Procesando y optimizando capturas médicas...</span>
                   </>
                 ) : (
                   <>
                     <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:0s]" />
                     <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:150ms]" />
                     <span className="size-2 animate-bounce-dot rounded-full bg-purple-400 [animation-delay:300ms]" />
-                    <span className="ml-1 text-[11px] opacity-70">MANOLIA está analizando...</span>
+                    <span className="ml-1 text-[11px] opacity-70">MANOLIA está analizando tus capturas...</span>
                   </>
                 )}
               </div>
@@ -630,34 +708,53 @@ export default function Tutor() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Archivos adjuntos actuales */}
-        {attachment && (
-          <div className="mb-2 flex animate-slide-up items-center gap-3 rounded-xl border border-purple-500/30 bg-purple-600/15 px-3.5 py-2 text-xs text-purple-200 max-w-xl">
-            {attachment.type === "image" ? (
-              <img
-                src={attachment.content}
-                alt="Thumbnail"
-                className="w-10 h-10 rounded-lg object-cover border border-purple-400/30 shadow"
-              />
-            ) : (
-              <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center border border-purple-400/30">
-                <FileUp size={18} className="text-purple-300" />
-              </div>
-            )}
-            <div className="flex min-w-0 flex-1 flex-col">
-              <span className="font-medium text-purple-100 truncate">{attachment.name}</span>
-              <span className="text-[10px] opacity-70">
-                {attachment.type === "image" ? "Captura médica optimizada para visión IA" : "Documento PDF listo"}
+        {/* Barra de previsualización de múltiples archivos adjuntos */}
+        {attachments.length > 0 && (
+          <div className="mb-2 flex flex-col gap-1.5 animate-slide-up p-2.5 rounded-2xl border border-purple-500/30 bg-purple-950/40 backdrop-blur-md">
+            <div className="flex items-center justify-between px-1 text-[11px] text-purple-300 font-medium">
+              <span>
+                {attachments.length} {attachments.length === 1 ? "archivo adjunto" : "archivos adjuntos"} listos
               </span>
+              <button
+                type="button"
+                onClick={clearAllAttachments}
+                className="text-[10px] text-purple-400 hover:text-red-400 transition-colors"
+              >
+                Limpiar todo
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => { setAttachment(null); setInput(""); }}
-              className="p-1 rounded-md hover:bg-white/10 text-purple-300 hover:text-white"
-              title="Quitar adjunto"
-            >
-              ✕
-            </button>
+
+            <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-1">
+              {attachments.map((att) => (
+                <div
+                  key={att.id}
+                  className="group relative flex items-center gap-2 rounded-xl border border-purple-500/25 bg-purple-600/15 p-1.5 pr-3 text-xs text-purple-200 max-w-[220px]"
+                >
+                  {att.type === "image" ? (
+                    <img
+                      src={att.content}
+                      alt={att.name}
+                      className="w-8 h-8 rounded-lg object-cover border border-purple-400/30 shrink-0"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center border border-purple-400/30 shrink-0">
+                      <FileUp size={14} className="text-purple-300" />
+                    </div>
+                  )}
+
+                  <span className="truncate text-[11px] flex-1 font-medium">{att.name}</span>
+
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(att.id)}
+                    className="p-1 rounded-md text-purple-300 hover:bg-red-500/20 hover:text-red-300 transition-colors"
+                    title="Eliminar este archivo"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -666,6 +763,7 @@ export default function Tutor() {
           <input
             ref={fileInputRef}
             type="file"
+            multiple
             accept=".pdf, image/png, image/jpeg, image/webp"
             onChange={handleFileUpload}
             className="hidden"
@@ -674,8 +772,8 @@ export default function Tutor() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={loading || processingMedia}
-            title="Subir archivo PDF o imagen médica"
-            className={`w-12 h-12 rounded-2xl border transition-all flex items-center justify-center ${attachment ? "border-purple-400/50 bg-purple-600/20 text-purple-300" : "border-white/10 bg-white/5 text-secondary hover:bg-white/10 hover:text-primary"
+            title="Subir archivos o múltiples imágenes médicas"
+            className={`w-12 h-12 rounded-2xl border transition-all flex items-center justify-center ${attachments.length > 0 ? "border-purple-400/50 bg-purple-600/20 text-purple-300" : "border-white/10 bg-white/5 text-secondary hover:bg-white/10 hover:text-primary"
               }`}
           >
             <FileUp size={20} />
@@ -707,9 +805,9 @@ export default function Tutor() {
             placeholder={
               isListening
                 ? "Escuchando tu voz..."
-                : attachment
-                  ? "Escribe una pregunta sobre la captura o presiona Enviar..."
-                  : "Pregúntale a MANOLIA (o presiona Ctrl + V para pegar una captura médica)..."
+                : attachments.length > 0
+                  ? `Escribe una duda sobre las ${attachments.length} capturas o presiona Enviar...`
+                  : "Pregúntale a MANOLIA (o pega varias capturas con Ctrl + V)..."
             }
             disabled={loading || processingMedia}
             className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-5 py-3.5 text-sm text-primary placeholder:text-secondary/60 outline-none transition-all focus:border-purple-500/50 focus:bg-white/[0.07]"
@@ -717,8 +815,8 @@ export default function Tutor() {
 
           <button
             onClick={() => send()}
-            disabled={loading || processingMedia || (!input.trim() && !attachment)}
-            className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all shadow-md ${loading || processingMedia || (!input.trim() && !attachment)
+            disabled={loading || processingMedia || (!input.trim() && attachments.length === 0)}
+            className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all shadow-md ${loading || processingMedia || (!input.trim() && attachments.length === 0)
               ? "bg-white/5 text-secondary/40 border border-white/5 cursor-not-allowed"
               : "bg-gradient-to-br from-purple-600 to-fuchsia-500 hover:from-purple-500 hover:to-fuchsia-400 text-white shadow-purple-500/25 active:scale-95"
               }`}
